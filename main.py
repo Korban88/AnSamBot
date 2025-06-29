@@ -1,48 +1,48 @@
 import os
-import asyncio
+import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import Message
+from aiogram.utils import executor
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from datetime import datetime
-from utils import get_crypto_signal
+from datetime import datetime, timedelta
 from keep_alive import keep_alive
+from utils import get_crypto_signal
 
-# Токен из переменных окружения
+# Включаем логирование
+logging.basicConfig(level=logging.INFO)
+
+# Получаем токен и chat_id из переменных окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(bot)
 
-# Основной сигнал
-async def send_morning_signal():
+# Планировщик задач
+scheduler = AsyncIOScheduler()
+
+# Задача — отправка сигнала каждый день в 08:00 по МСК
+def send_daily_signal():
     signal = get_crypto_signal()
-    await bot.send_message(347552741, signal)
+    message = f"📈 Утренний сигнал: {signal}"
+    try:
+        asyncio.create_task(bot.send_message(chat_id=CHAT_ID, text=message))
+        logging.info("Утренний сигнал отправлен")
+    except Exception as e:
+        logging.error(f"Ошибка при отправке сигнала: {e}")
 
-# Команды
-@dp.message(commands=['start', 'test'])
-async def start_handler(message: types.Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Получить ещё сигнал", callback_data="more_signal")]
-    ])
-    await message.answer(
-        "Добро пожаловать в новую жизнь, Корбан!\nAnSam Bot подключён. Первый сигнал придёт в 8:00 по Москве.",
-        reply_markup=kb
-    )
+# Обработчик команды /start
+@dp.message_handler(commands=["start"])
+async def send_welcome(message: Message):
+    await message.answer("Добро пожаловать в новую жизнь, Корбан!")
 
-@dp.callback_query()
-async def handle_callbacks(callback: types.CallbackQuery):
-    if callback.data == "more_signal":
-        signal = get_crypto_signal()
-        await callback.message.answer(signal)
-
-# Планировщик
-scheduler = AsyncIOScheduler(timezone='Europe/Moscow')
-scheduler.add_job(send_morning_signal, trigger='cron', hour=8, minute=0)
-
-# Запуск
-async def main():
+# Главная функция
+async def on_startup(_):
+    logging.info("Бот запущен и готов к работе.")
+    scheduler.add_job(send_daily_signal, 'cron', hour=8, minute=0, timezone='Europe/Moscow')
     scheduler.start()
-    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    keep_alive()
-    asyncio.run(main())
+    import asyncio
+    keep_alive()  # Запускаем Flask-сервер
+    executor.start_polling(dp, on_startup=on_startup)
