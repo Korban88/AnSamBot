@@ -1,6 +1,6 @@
 import random
 
-def get_crypto_signal():
+def get_daily_crypto_signal():
     # Пример данных — в будущем можно подключить реальную аналитику
     coins = ["TON", "BTC", "ETH", "USDT", "BNB"]
     coin = random.choice(coins)
