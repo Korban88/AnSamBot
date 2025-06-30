@@ -1,57 +1,71 @@
-import logging
 import os
+import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from datetime import datetime, time, timedelta
 from keep_alive import keep_alive
-from utils import get_daily_crypto_signal
+from signals import get_crypto_signal
 
-# Логгирование
+# Настройка логов
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Переменные окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
+# Проверка токена
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN не найден в переменных окружения.")
+
 # Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
-# Обработчик команды /start с кнопками
-@dp.message_handler(commands=['start'])
-async def start_command(message: types.Message):
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add(types.KeyboardButton("Получить ещё сигнал"))
-    keyboard.add(types.KeyboardButton("Сообщить об ошибке"))
+# Клавиатура
+keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+keyboard.add(KeyboardButton("Получить ещё сигнал"))
+keyboard.add(KeyboardButton("Что-то пошло не так"))
+
+# Обработчик команды /start
+@dp.message_handler(commands=["start"])
+async def start_handler(message: types.Message):
     await message.answer("Бот работает и готов присылать крипто-сигналы.", reply_markup=keyboard)
 
-# Обработка кнопки «Получить ещё сигнал»
+# Обработчик кнопок
 @dp.message_handler(lambda message: message.text == "Получить ещё сигнал")
-async def handle_extra_signal(message: types.Message):
-    signal = get_daily_crypto_signal()
-    await message.answer(f"Дополнительный сигнал: {signal}")
+async def more_signal_handler(message: types.Message):
+    signal = get_crypto_signal()
+    text = f"💹 Сигнал: {signal['action']} {signal['coin']} — цель: +{signal['target_profit_percent']}%"
+    await message.answer(text)
 
-# Обработка кнопки «Сообщить об ошибке»
-@dp.message_handler(lambda message: message.text == "Сообщить об ошибке")
-async def handle_report(message: types.Message):
-    await message.answer("Спасибо, мы проверим. Ошибка будет зафиксирована.")
+@dp.message_handler(lambda message: message.text == "Что-то пошло не так")
+async def error_handler(message: types.Message):
+    await message.answer("Если возникла ошибка — просто напиши Артуру Корбану или попробуй позже.")
 
-# Планировщик — ежедневная отправка сигнала
+# Ежедневная рассылка сигнала
 async def send_daily_signal():
-    signal = get_daily_crypto_signal()
     if CHAT_ID:
-        await bot.send_message(chat_id=CHAT_ID, text=f"Ежедневный сигнал: {signal}")
-    else:
-        logger.warning("CHAT_ID не установлен!")
+        signal = get_crypto_signal()
+        text = f"📈 Утренний сигнал: {signal['action']} {signal['coin']} — цель: +{signal['target_profit_percent']}%"
+        await bot.send_message(CHAT_ID, text)
 
-# Запуск планировщика
-async def on_startup(dispatcher):
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(send_daily_signal, "cron", hour=8, minute=0)
-    scheduler.start()
-    logger.info("Бот запущен и готов к работе.")
+# Планировщик
+scheduler = AsyncIOScheduler()
+moscow_time = time(hour=8, minute=0)
+now = datetime.now()
+first_run = datetime.combine(now.date(), moscow_time)
+if now > first_run:
+    first_run += timedelta(days=1)
 
+scheduler.add_job(send_daily_signal, "interval", days=1, start_date=first_run)
+scheduler.start()
+
+# Стартуем
 if __name__ == "__main__":
-    keep_alive()  # Railway uptime
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+    keep_alive()
+    from aiogram import executor
+    logging.info("Бот запущен и готов к работе.")
+    executor.start_polling(dp, skip_updates=True)
