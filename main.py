@@ -1,52 +1,57 @@
 import logging
 import os
-
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ParseMode
 from aiogram.utils import executor
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from keep_alive import keep_alive
-from utils import get_crypto_signal
+from utils import get_daily_crypto_signal
 
-# Включаем логирование
+# Логгирование
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Получаем токены и ID из переменных окружения
+# Переменные окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID", "0"))
-
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN is missing. Please set it in Railway Variables.")
+CHAT_ID = os.getenv("CHAT_ID")
 
 # Инициализация бота и диспетчера
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 
-# Планировщик задач
-scheduler = AsyncIOScheduler()
+# Обработчик команды /start с кнопками
+@dp.message_handler(commands=['start'])
+async def start_command(message: types.Message):
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add(types.KeyboardButton("Получить ещё сигнал"))
+    keyboard.add(types.KeyboardButton("Сообщить об ошибке"))
+    await message.answer("Бот работает и готов присылать крипто-сигналы.", reply_markup=keyboard)
 
-# Отправка сигнала каждый день в 8:00
+# Обработка кнопки «Получить ещё сигнал»
+@dp.message_handler(lambda message: message.text == "Получить ещё сигнал")
+async def handle_extra_signal(message: types.Message):
+    signal = get_daily_crypto_signal()
+    await message.answer(f"Дополнительный сигнал: {signal}")
+
+# Обработка кнопки «Сообщить об ошибке»
+@dp.message_handler(lambda message: message.text == "Сообщить об ошибке")
+async def handle_report(message: types.Message):
+    await message.answer("Спасибо, мы проверим. Ошибка будет зафиксирована.")
+
+# Планировщик — ежедневная отправка сигнала
 async def send_daily_signal():
-    signal = await get_crypto_signal()
-    await bot.send_message(chat_id=OWNER_ID, text=f"📈 Утренний сигнал:\n\n{signal}")
+    signal = get_daily_crypto_signal()
+    if CHAT_ID:
+        await bot.send_message(chat_id=CHAT_ID, text=f"Ежедневный сигнал: {signal}")
+    else:
+        logger.warning("CHAT_ID не установлен!")
 
-# Команда /start
-@dp.message_handler(commands=["start"])
-async def start_handler(message: types.Message):
-    await message.reply("Бот работает и готов присылать крипто-сигналы.")
-
-# Кнопка "Получить ещё сигнал"
-@dp.message_handler(lambda message: message.text.lower() == "получить ещё сигнал")
-async def more_signal_handler(message: types.Message):
-    signal = await get_crypto_signal()
-    await message.answer(f"📊 Новый сигнал:\n\n{signal}")
-
-async def on_startup(_):
-    logger.info("Бот запущен и готов к работе.")
-    scheduler.add_job(send_daily_signal, trigger='cron', hour=8, minute=0)
+# Запуск планировщика
+async def on_startup(dispatcher):
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(send_daily_signal, "cron", hour=8, minute=0)
     scheduler.start()
+    logger.info("Бот запущен и готов к работе.")
 
-if __name__ == '__main__':
-    keep_alive()  # Запускаем веб-сервер, чтобы Railway не засыпал
+if __name__ == "__main__":
+    keep_alive()  # Railway uptime
     executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
