@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pytz import timezone
 from crypto_utils import get_top_ton_wallet_coins as analyze_tokens
 
-API_TOKEN = 'ТОКЕН_СЮДА'
+API_TOKEN = '8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c'
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
