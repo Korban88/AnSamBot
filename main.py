@@ -1,82 +1,66 @@
 import logging
-import random
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from pytz import timezone
-from crypto_utils import get_top_ton_wallet_coins as analyze_tokens
+from crypto_utils import analyze_tokens
+import os
 
-API_TOKEN = '8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c'
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+# Вставь сюда свой токен
+BOT_TOKEN = os.getenv("8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c")
 
 logging.basicConfig(level=logging.INFO)
-
-# Клавиатура с двумя кнопками
-keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-keyboard.add(KeyboardButton("Старт"))
-keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
-
-# Планировщик
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
-moscow = timezone('Europe/Moscow')
 
-# Отправка сигнала
+# ======= КНОПКИ =======
+start_kb = ReplyKeyboardMarkup(resize_keyboard=True)
+start_kb.add(KeyboardButton("Старт"))
+start_kb.add(KeyboardButton("🚀 Получить ещё сигнал"))
+
+# ======= ГЛАВНАЯ ФУНКЦИЯ =======
 async def send_signal(chat_id):
     try:
-        coin = analyze_tokens()
+        result = analyze_tokens()
+        if not result:
+            await bot.send_message(chat_id, "⚠️ Не удалось найти перспективную монету.")
+            return
 
-        if coin:
-            symbol = coin['id'].upper()
-            current_price = coin['price']
-            target_price = round(current_price * 1.05, 4)
-            stop_loss = round(current_price * 0.974, 4)
-            probability = random.randint(76, 91)
-
-            message = (
-                "📈 Сигнал на покупку\n\n"
-                f"Монета: {symbol}\n"
-                f"Текущая цена: {current_price}$\n"
-                f"Цель: +5% → {target_price}$\n"
-                "Рекомендовано: BUY\n"
-                f"Продать при достижении цели или при падении ниже: {stop_loss}$ (Stop Loss)\n\n"
-                f"Вероятность достижения цели: {probability}%"
-            )
-        else:
-            message = "❌ Не удалось найти подходящую монету с потенциалом роста."
-
-        await bot.send_message(chat_id, message, reply_markup=keyboard)
-
+        msg = (
+            f"📈 *Сигнал на рост монеты:*\n\n"
+            f"*Монета:* `{result['id'].upper()}`\n"
+            f"*Цена входа:* `${result['price']}`\n"
+            f"*Цель +5%:* `${round(result['price'] * 1.05, 4)}`\n"
+            f"*Стоп-лосс:* `${round(result['price'] * 0.96, 4)}`\n"
+            f"*Изменение за 24ч:* `{result['change_24h']}%`\n"
+            f"*Изменение за 7д:* `{result['change_7d']}%`\n"
+            f"*Объём:* `${result['volume']}`"
+        )
+        await bot.send_message(chat_id, msg, parse_mode="Markdown")
     except Exception as e:
-        logging.error(f"Ошибка в send_signal(): {e}")
-        await bot.send_message(chat_id, f"⚠️ Ошибка при анализе монет:\n{e}", reply_markup=keyboard)
+        logging.exception("Ошибка в send_signal()")
+        await bot.send_message(chat_id, f"⚠️ Ошибка при анализе монет:\n{str(e)}")
 
-# Задача на 8:00 по Москве
-async def scheduled_signal():
-    chat_id = 347552741
-    await send_signal(chat_id)
-
-scheduler.add_job(scheduled_signal, trigger='cron', hour=8, minute=0, timezone=moscow)
-
-# Обработка команды /start или кнопки "Старт"
+# ======= КОМАНДА /start =======
 @dp.message_handler(commands=['start'])
-@dp.message_handler(lambda message: message.text.lower() == "старт")
-async def start_handler(message: types.Message):
-    await message.answer("Добро пожаловать в новую жизнь, Корбан!\n\nТы можешь нажать кнопку ниже, чтобы получить свежий сигнал.", reply_markup=keyboard)
+async def start_command(message: types.Message):
+    await message.answer("Добро пожаловать в новую жизнь, Корбан!", reply_markup=start_kb)
 
-# Кнопка: Получить ещё сигнал
-@dp.message_handler(lambda message: message.text == "🚀 Получить ещё сигнал")
-async def get_signal_handler(message: types.Message):
-    await send_signal(message.chat.id)
-
-# Команда /test
+# ======= КОМАНДА /test =======
 @dp.message_handler(commands=['test'])
-async def test_handler(message: types.Message):
-    await message.answer("Тестовый сигнал на основе анализа актуальных монет:")
+async def test_command(message: types.Message):
+    await message.answer("🧪 Тестовый сигнал на основе анализа актуальных монет:")
     await send_signal(message.chat.id)
 
-# Запуск
-if __name__ == '__main__':
-    scheduler.start()
-    logging.info("Бот запущен и готов к работе.")
-    executor.start_polling(dp, skip_updates=True)
+# ======= КНОПКА "Старт" =======
+@dp.message_handler(lambda message: message.text == "Старт")
+async def handle_start_button(message: types.Message):
+    await message.answer("Бот активирован. Ждите сигналы каждый день в 8:00 МСК.")
+
+# ======= КНОПКА "Получить ещё сигнал" =======
+@dp.message_handler(lambda message: message.text == "🚀 Получить ещё сигнал")
+async def handle_signal_button(message: types.Message):
+    await send_signal(message.chat.id)
+
+# ======= ЕЖЕДНЕВНЫЙ СИГНАЛ =======
+async def scheduled_signal():
