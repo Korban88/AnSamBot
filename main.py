@@ -4,16 +4,17 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pytz import timezone
-from crypto_utils import get_top_ton_wallet_coins as analyze_tokens  # корректный импорт
+from crypto_utils import get_top_ton_wallet_coins as analyze_tokens
 
-API_TOKEN = '8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c'
+API_TOKEN = 'ТОКЕН_СЮДА'
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
 logging.basicConfig(level=logging.INFO)
 
-# Клавиатура
+# Клавиатура с двумя кнопками
 keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+keyboard.add(KeyboardButton("Старт"))
 keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
 
 # Планировщик
@@ -22,28 +23,33 @@ moscow = timezone('Europe/Moscow')
 
 # Отправка сигнала
 async def send_signal(chat_id):
-    coin = analyze_tokens()
+    try:
+        coin = analyze_tokens()
 
-    if coin:
-        symbol = coin['id'].upper()
-        current_price = coin['price']
-        target_price = round(current_price * 1.05, 4)
-        stop_loss = round(current_price * 0.974, 4)
-        probability = random.randint(76, 91)
+        if coin:
+            symbol = coin['id'].upper()
+            current_price = coin['price']
+            target_price = round(current_price * 1.05, 4)
+            stop_loss = round(current_price * 0.974, 4)
+            probability = random.randint(76, 91)
 
-        message = (
-            "📈 Сигнал на покупку\n\n"
-            f"Монета: {symbol}\n"
-            f"Текущая цена: {current_price}$\n"
-            f"Цель: +5% → {target_price}$\n"
-            "Рекомендовано: BUY\n"
-            f"Продать при достижении цели или при падении ниже: {stop_loss}$ (Stop Loss)\n\n"
-            f"Вероятность достижения цели: {probability}%"
-        )
-    else:
-        message = "Сегодня нет монет с высоким потенциалом роста."
+            message = (
+                "📈 Сигнал на покупку\n\n"
+                f"Монета: {symbol}\n"
+                f"Текущая цена: {current_price}$\n"
+                f"Цель: +5% → {target_price}$\n"
+                "Рекомендовано: BUY\n"
+                f"Продать при достижении цели или при падении ниже: {stop_loss}$ (Stop Loss)\n\n"
+                f"Вероятность достижения цели: {probability}%"
+            )
+        else:
+            message = "❌ Не удалось найти подходящую монету с потенциалом роста."
 
-    await bot.send_message(chat_id, message, reply_markup=keyboard)
+        await bot.send_message(chat_id, message, reply_markup=keyboard)
+
+    except Exception as e:
+        logging.error(f"Ошибка в send_signal(): {e}")
+        await bot.send_message(chat_id, f"⚠️ Ошибка при анализе монет:\n{e}", reply_markup=keyboard)
 
 # Задача на 8:00 по Москве
 async def scheduled_signal():
@@ -52,7 +58,7 @@ async def scheduled_signal():
 
 scheduler.add_job(scheduled_signal, trigger='cron', hour=8, minute=0, timezone=moscow)
 
-# Обработка команды /start и кнопки "Старт"
+# Обработка команды /start или кнопки "Старт"
 @dp.message_handler(commands=['start'])
 @dp.message_handler(lambda message: message.text.lower() == "старт")
 async def start_handler(message: types.Message):
