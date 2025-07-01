@@ -64,3 +64,6 @@ async def handle_signal_button(message: types.Message):
 
 # ======= ЕЖЕДНЕВНЫЙ СИГНАЛ =======
 async def scheduled_signal():
+    chat_id = os.getenv("347552741")  # поставь здесь свой Telegram ID
+    if chat_id:
+        await send_signal(chat_id)
