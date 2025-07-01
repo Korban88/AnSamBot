@@ -3,11 +3,12 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from crypto_utils import analyze_tokens
-import os
 
-# Вставь сюда свой токен
-BOT_TOKEN = os.getenv("8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c")
+# 🔐 Токен и ID — напрямую прописаны (не через os.getenv)
+BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
+TELEGRAM_USER_ID = 347552741
 
+# Инициализация
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
@@ -64,6 +65,11 @@ async def handle_signal_button(message: types.Message):
 
 # ======= ЕЖЕДНЕВНЫЙ СИГНАЛ =======
 async def scheduled_signal():
-    chat_id = os.getenv("347552741")  # поставь здесь свой Telegram ID
-    if chat_id:
-        await send_signal(chat_id)
+    await send_signal(TELEGRAM_USER_ID)
+
+# ======= ЗАПУСК =======
+if __name__ == '__main__':
+    scheduler.add_job(scheduled_signal, "cron", hour=8, minute=0)
+    scheduler.start()
+    logging.info("Бот запущен и готов к работе.")
+    executor.start_polling(dp, skip_updates=True)
