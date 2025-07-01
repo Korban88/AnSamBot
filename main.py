@@ -1,13 +1,10 @@
 import logging
 import random
-import asyncio
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pytz import timezone
-from datetime import datetime
-from crypto_utils import analyze_tokens  # твой анализатор
-from ton_tokens import get_ton_wallet_tokens  # список твоих монет
+from crypto_utils import get_top_ton_wallet_coins as analyze_tokens  # корректный импорт
 
 API_TOKEN = '8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c'
 bot = Bot(token=API_TOKEN)
@@ -25,19 +22,21 @@ moscow = timezone('Europe/Moscow')
 
 # Отправка сигнала
 async def send_signal(chat_id):
-    coins = get_ton_wallet_tokens()
-    signal = await analyze_tokens(coins)
+    coin = analyze_tokens()
 
-    if signal:
-        coin, current_price, target_price, stop_loss = signal
+    if coin:
+        symbol = coin['id'].upper()
+        current_price = coin['price']
+        target_price = round(current_price * 1.05, 4)
+        stop_loss = round(current_price * 0.974, 4)
         probability = random.randint(76, 91)
 
         message = (
             "📈 Сигнал на покупку\n\n"
-            f"Монета: {coin.upper()}\n"
+            f"Монета: {symbol}\n"
             f"Текущая цена: {current_price}$\n"
             f"Цель: +5% → {target_price}$\n"
-            f"Рекомендовано: BUY\n"
+            "Рекомендовано: BUY\n"
             f"Продать при достижении цели или при падении ниже: {stop_loss}$ (Stop Loss)\n\n"
             f"Вероятность достижения цели: {probability}%"
         )
@@ -46,16 +45,16 @@ async def send_signal(chat_id):
 
     await bot.send_message(chat_id, message, reply_markup=keyboard)
 
-# Ежедневная задача
+# Задача на 8:00 по Москве
 async def scheduled_signal():
-    chat_id = 347552741  # твой ID
+    chat_id = 347552741
     await send_signal(chat_id)
 
 scheduler.add_job(scheduled_signal, trigger='cron', hour=8, minute=0, timezone=moscow)
 
 # Обработка команды /start и кнопки "Старт"
 @dp.message_handler(commands=['start'])
-@dp.message_handler(lambda message: message.text == "Старт")
+@dp.message_handler(lambda message: message.text.lower() == "старт")
 async def start_handler(message: types.Message):
     await message.answer("Добро пожаловать в новую жизнь, Корбан!\n\nТы можешь нажать кнопку ниже, чтобы получить свежий сигнал.", reply_markup=keyboard)
 
@@ -64,7 +63,7 @@ async def start_handler(message: types.Message):
 async def get_signal_handler(message: types.Message):
     await send_signal(message.chat.id)
 
-# Команда /test — протестировать реальный сигнал прямо сейчас
+# Команда /test
 @dp.message_handler(commands=['test'])
 async def test_handler(message: types.Message):
     await message.answer("Тестовый сигнал на основе анализа актуальных монет:")
