@@ -6,7 +6,7 @@ from datetime import datetime
 import asyncio
 
 # Инициализация бота
-API_TOKEN = 8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c
+API_TOKEN = '8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c'
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
@@ -17,10 +17,26 @@ logging.basicConfig(level=logging.INFO)
 scheduler = AsyncIOScheduler()
 moscow = timezone('Europe/Moscow')
 
-# 📩 Функция отправки сигнала
+# 📩 Функция отправки сигнала (временно с фиктивными данными)
 async def send_daily_signal():
-    chat_id = 347552741  # Замени на свой Telegram ID или добавь получение из базы
-    await bot.send_message(chat_id, "📈 Утренний сигнал: BUY BNB — цель: +5.0%")
+    chat_id = 347552741  # Твой Telegram ID
+
+    # Примерные данные (в будущем заменим на анализ)
+    coin = "BNB"
+    current_price = 612.30
+    target_price = round(current_price * 1.05, 2)
+    stop_loss = round(current_price * 0.974, 2)  # -2.6% запас
+
+    message = (
+        "📈 Утренний сигнал\n\n"
+        f"Монета: {coin}\n"
+        f"Текущая цена: {current_price}$\n"
+        f"Цель: +5% → {target_price}$\n"
+        "Рекомендовано: BUY\n"
+        f"Продать при достижении цели или при падении ниже: {stop_loss}$ (Stop Loss)"
+    )
+
+    await bot.send_message(chat_id, message)
 
 # Задача: запуск каждый день в 8:00 по Москве
 scheduler.add_job(
