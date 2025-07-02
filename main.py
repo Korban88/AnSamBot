@@ -1,76 +1,81 @@
 import logging
-from aiogram import Bot, Dispatcher, types, executor
+from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from crypto_utils import get_top_ton_wallet_coins
 from tracking import start_tracking
+import asyncio
 
-BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
+API_TOKEN = '8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c'
 USER_ID = 347552741
 
-bot = Bot(token=BOT_TOKEN)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
 
-# Кнопки
+# --- Кнопки ---
 keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-keyboard.add(KeyboardButton("Получить ещё сигнал"))
-keyboard.add(KeyboardButton("Следить за монетой"))
+keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
+keyboard.add(KeyboardButton("👁 Следить за монетой"))
 
-# Обработка команды /start
-@dp.message_handler(commands=["start"])
-async def start_handler(message: types.Message):
+# --- Старт ---
+@dp.message_handler(commands=['start'])
+async def start_command(message: types.Message):
     await message.answer("Бот активирован. Ждите сигналы каждый день в 8:00 МСК.", reply_markup=keyboard)
 
-# Кнопка "Получить ещё сигнал"
-@dp.message_handler(lambda message: message.text == "Получить ещё сигнал")
-async def get_extra_signal(message: types.Message):
+@dp.message_handler(lambda message: message.text == "🚀 Получить ещё сигнал")
+async def manual_signal(message: types.Message):
     coin = get_top_ton_wallet_coins()
     if coin:
-        text = (
+        price = coin['price']
+        goal_price = round(price * 1.05, 4)
+        stop_price = round(price * 0.965, 4)
+        signal = (
             f"💰 Сигнал:\n"
             f"Монета: {coin['id']}\n"
-            f"Цена: {coin['price']} $\n"
+            f"Цена: {price} $\n"
             f"Рост за 24ч: {coin['change_24h']}%\n"
-            f"Вероятность роста: {coin['score'] * 10}%\n"
-            f"🎯 Цель: +5%\n"
-            f"⛔️ Стоп-лосс: -3%"
+            f"Вероятность роста: {coin['score'] * 10 + 50}%\n"
+            f"🎯 Цель: {goal_price} $ (+5%)\n"
+            f"⛔️ Стоп-лосс: {stop_price} $ (-3.5%)"
         )
-        await message.answer(text, reply_markup=keyboard)
+        await message.answer(signal)
     else:
-        await message.answer("Не удалось получить данные по монетам.")
+        await message.answer("Не удалось получить сигнал. Попробуйте позже.")
 
-# Кнопка "Следить за монетой"
-@dp.message_handler(lambda message: message.text == "Следить за монетой")
-async def track_coin(message: types.Message):
+@dp.message_handler(lambda message: message.text == "👁 Следить за монетой")
+async def track_button(message: types.Message):
     coin = get_top_ton_wallet_coins()
     if coin:
-        await message.answer(f"Начинаю отслеживать {coin['id']} с цены {coin['price']} $ на 12 часов...")
-        await start_tracking(message, coin['id'], coin['price'])
+        await message.answer(f"Начинаю следить за монетой {coin['id']} по цене {coin['price']} $")
+        await start_tracking(bot, USER_ID, coin['id'], coin['price'])
     else:
-        await message.answer("Не удалось выбрать монету для отслеживания.")
+        await message.answer("Монета не выбрана для отслеживания. Попробуйте позже.")
 
-# Плановое сообщение в 8:00
+# --- Планировщик ---
 async def scheduled_signal():
     coin = get_top_ton_wallet_coins()
     if coin:
-        text = (
+        price = coin['price']
+        goal_price = round(price * 1.05, 4)
+        stop_price = round(price * 0.965, 4)
+        signal = (
             f"💰 Сигнал:\n"
             f"Монета: {coin['id']}\n"
-            f"Цена: {coin['price']} $\n"
+            f"Цена: {price} $\n"
             f"Рост за 24ч: {coin['change_24h']}%\n"
-            f"Вероятность роста: {coin['score'] * 10}%\n"
-            f"🎯 Цель: +5%\n"
-            f"⛔️ Стоп-лосс: -3%"
+            f"Вероятность роста: {coin['score'] * 10 + 50}%\n"
+            f"🎯 Цель: {goal_price} $ (+5%)\n"
+            f"⛔️ Стоп-лосс: {stop_price} $ (-3.5%)"
         )
-        await bot.send_message(USER_ID, text)
+        await bot.send_message(USER_ID, signal)
 
-# Функция запуска при старте
-async def on_startup(_):
-    scheduler.add_job(scheduled_signal, "cron", hour=8, minute=0)
+scheduler.add_job(scheduled_signal, trigger='cron', hour=8, minute=0, timezone='Europe/Moscow')
+
+# --- Запуск ---
+if __name__ == '__main__':
     scheduler.start()
-    logging.info("Планировщик запущен.")
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+    executor.start_polling(dp, skip_updates=True)
