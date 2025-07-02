@@ -1,89 +1,100 @@
-import logging
 import asyncio
+import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils import executor
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from crypto_utils import analyze_tokens, track_price_changes
+from crypto_utils import get_top_ton_wallet_coins, track_price_changes
 
-# === Настройки ===
 BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 USER_ID = 347552741
 
-# === Инициализация ===
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
-logging.basicConfig(level=logging.INFO)
 
-# === Клавиатура ===
-kb = ReplyKeyboardMarkup(resize_keyboard=True)
-kb.add(KeyboardButton("🚀 Получить ещё сигнал"))
-kb.add(KeyboardButton("🔔 Следить за монетой"))
+watchlist = {}
 
-# === Обработчики ===
-@dp.message_handler(commands=["start"])
-@dp.message_handler(lambda message: message.text == "Старт")
+# Клавиатура
+keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+keyboard.add(KeyboardButton("Старт"))
+keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
+keyboard.add(KeyboardButton("🔔 Следить за монетой"))
+
+# Старт
+@dp.message_handler(lambda message: message.text.lower() == "старт")
 async def start(message: types.Message):
-    await message.answer("Бот активирован. Ждите сигналы каждый день в 8:00 МСК.", reply_markup=kb)
+    await message.answer("Бот активирован. Ждите сигналы каждый день в 8:00 МСК.", reply_markup=keyboard)
 
-@dp.message_handler(commands=["test"])
-async def test(message: types.Message):
-    await send_signal(message.chat.id, test_mode=True)
-
-@dp.message_handler(lambda message: message.text == "🚀 Получить ещё сигнал")
-async def handle_more_signal(message: types.Message):
-    await send_signal(message.chat.id)
-
-@dp.message_handler(lambda message: message.text == "🔔 Следить за монетой")
-async def handle_follow(message: types.Message):
-    result = analyze_tokens()
-    if not result:
-        await message.answer("Не удалось выбрать монету для отслеживания.")
-        return
-
-    token_id = result["id"]
-    entry_price = result["price"]
-
-    await message.answer(f"Начинаю отслеживать монету: {token_id.upper()}\nТекущая цена: ${entry_price}")
-    asyncio.create_task(track_price_changes(bot, message.chat.id, token_id, entry_price))
-
-# === Ежедневная задача ===
-async def scheduled_signal():
-    await send_signal(USER_ID)
-
-scheduler.add_job(scheduled_signal, "cron", hour=8, minute=0)
-scheduler.start()
-
-# === Отправка сигнала ===
-async def send_signal(chat_id, test_mode=False):
+# Выдать сигнал
+async def send_signal():
     try:
-        result = analyze_tokens()
-        if not result:
-            await bot.send_message(chat_id, "\u26A0\ufe0f Монета не найдена. Попробуйте позже.")
+        result = get_top_ton_wallet_coins()
+        if result is None:
+            await bot.send_message(USER_ID, "⚠️ Монеты не найдены.")
             return
 
-        msg = "\ud83d\udcc8 Сигнал на рост монеты:\n"
-        if test_mode:
-            msg = "\ud83d\udd8b\ufe0f Тестовый сигнал на основе анализа актуальных монет:\n"
-
-        msg += (
-            f"\nМонета: {result['id'].upper()}"
-            f"\nЦена входа: ${result['price']}"
-            f"\nЦель +5%: ${round(result['price'] * 1.05, 4)}"
-            f"\nСтоп-лосс: ${round(result['price'] * 0.955, 4)}"
-            f"\nИзменение за 24ч: {result['change_24h']}%"
-            f"\nИзменение за 7д: {result['change_7d']}%"
-            f"\nОбъём: ${result['volume']}"
+        text = (
+            "📈 Сигнал на рост монеты:\n\n"
+            f"Монета: {result['id'].upper()}\n"
+            f"Цена входа: ${result['price']}\n"
+            f"Цель +5%: ${round(result['price'] * 1.05, 4)}\n"
+            f"Стоп-лосс: ${round(result['price'] * 0.955, 4)}\n"
+            f"Изменение за 24ч: {result['change_24h']}%\n"
+            f"Изменение за 7д: {result['change_7d']}%\n"
+            f"Объём: ${result['volume']:,}"
         )
-
-        await bot.send_message(chat_id, msg)
-
+        await bot.send_message(USER_ID, text)
     except Exception as e:
         logging.error(f"Ошибка в send_signal(): {e}")
-        await bot.send_message(chat_id, f"\u26A0\ufe0f Ошибка при анализе монет:\n{e}")
+        await bot.send_message(USER_ID, f"⚠️ Ошибка при анализе монет:\n{e}")
 
-# === Запуск ===
-if __name__ == "__main__":
-    logging.info("Бот запущен и готов к работе.")
+# Команда /test
+@dp.message_handler(commands=['test'])
+async def test(message: types.Message):
+    await message.answer("✏️ Тестовый сигнал на основе анализа актуальных монет:")
+    await send_signal()
+
+# Кнопка «Получить ещё сигнал»
+@dp.message_handler(lambda message: message.text.lower().startswith("🚀"))
+async def more_signal(message: types.Message):
+    await send_signal()
+
+# Кнопка «Следить за монетой»
+@dp.message_handler(lambda message: message.text.lower().startswith("🔔"))
+async def watch_coin(message: types.Message):
+    result = get_top_ton_wallet_coins()
+    if result:
+        coin = result['id']
+        price = result['price']
+        watchlist[coin] = {
+            'start_price': price,
+            'start_time': asyncio.get_event_loop().time(),
+            'notified_3_5': False,
+            'notified_5': False,
+            'notified_timeout': False
+        }
+        await message.answer(f"⏱ Монета {coin.upper()} добавлена в отслеживание.")
+    else:
+        await message.answer("⚠️ Не удалось найти монету для отслеживания.")
+
+# Проверка отслеживания каждые 10 минут
+async def track_all():
+    for coin, data in watchlist.items():
+        try:
+            await track_price_changes(bot, USER_ID, coin, data)
+        except Exception as e:
+            logging.error(f"Ошибка при отслеживании {coin}: {e}")
+
+# Планировщик ежедневного сигнала
+async def scheduled_signal():
+    await send_signal()
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+
+    scheduler.add_job(scheduled_signal, 'cron', hour=8, minute=0)
+    scheduler.add_job(track_all, 'interval', minutes=10)
+    scheduler.start()
+
     executor.start_polling(dp, skip_updates=True)
