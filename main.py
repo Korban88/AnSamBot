@@ -22,7 +22,7 @@ keyboard.add(KeyboardButton("Следить за монетой"))
 async def start_handler(message: types.Message):
     await message.answer("Бот активирован. Ждите сигналы каждый день в 8:00 МСК.", reply_markup=keyboard)
 
-# Обработка кнопки «Получить ещё сигнал»
+# Кнопка "Получить ещё сигнал"
 @dp.message_handler(lambda message: message.text == "Получить ещё сигнал")
 async def get_extra_signal(message: types.Message):
     coin = get_top_ton_wallet_coins()
@@ -40,7 +40,7 @@ async def get_extra_signal(message: types.Message):
     else:
         await message.answer("Не удалось получить данные по монетам.")
 
-# Обработка кнопки «Следить за монетой»
+# Кнопка "Следить за монетой"
 @dp.message_handler(lambda message: message.text == "Следить за монетой")
 async def track_coin(message: types.Message):
     coin = get_top_ton_wallet_coins()
@@ -50,7 +50,7 @@ async def track_coin(message: types.Message):
     else:
         await message.answer("Не удалось выбрать монету для отслеживания.")
 
-# Автосигнал каждый день в 8:00
+# Плановое сообщение в 8:00
 async def scheduled_signal():
     coin = get_top_ton_wallet_coins()
     if coin:
@@ -65,9 +65,12 @@ async def scheduled_signal():
         )
         await bot.send_message(USER_ID, text)
 
+# Функция запуска при старте
+async def on_startup(_):
+    scheduler.add_job(scheduled_signal, "cron", hour=8, minute=0)
+    scheduler.start()
+    logging.info("Планировщик запущен.")
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    dp.loop.create_task(scheduler.start())
-    scheduler.add_job(scheduled_signal, "cron", hour=8, minute=0)
-    logging.info("Бот запущен и готов к работе.")
-    executor.start_polling(dp, skip_updates=True)
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
