@@ -1,7 +1,7 @@
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher, types, executor
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime, timedelta
 from crypto_utils import get_top_ton_wallet_coins
@@ -16,6 +16,9 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
 logging.basicConfig(level=logging.INFO)
+
+# === Хранилище последней отслеживаемой монеты ===
+last_tracked_coin = {}
 
 # === Клавиатура меню ===
 main_menu = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -45,11 +48,13 @@ async def start_again(message: types.Message):
 # === Кнопка 'Получить ещё сигнал' ===
 @dp.message_handler(lambda message: message.text == "🚀 Получить ещё сигнал")
 async def handle_get_signal(message: types.Message):
+    global last_tracked_coin
     coin = get_top_ton_wallet_coins()
     if coin:
         price = coin['price']
         target_price = round(price * 1.05, 4)
         stop_loss_price = round(price * 0.965, 4)
+        last_tracked_coin[message.from_user.id] = coin['id']
         text = (
             f"💰 Сигнал:\n"
             f"Монета: {coin['id']}\n"
@@ -66,10 +71,13 @@ async def handle_get_signal(message: types.Message):
 # === Кнопка 'Следить за монетой' ===
 @dp.message_handler(lambda message: message.text == "👁 Следить за монетой")
 async def handle_track_coin(message: types.Message):
+    global last_tracked_coin
     coin = get_top_ton_wallet_coins()
     if coin:
         await start_tracking(bot, message.from_user.id, coin['id'], coin['price'])
-        await message.answer(f"🛰 Монета {coin['id']} отслеживается. Уведомим при росте +3.5% или по итогам 12ч.")
+        await message.answer(
+            f"🛰 Монета {coin['id']} отслеживается. Уведомим при +3.5%, +5% или по итогам 12ч."
+        )
     else:
         await message.answer("Не удалось запустить отслеживание: монета не найдена.")
 
@@ -99,7 +107,6 @@ async def scheduled_signal():
 
 # === Планировщик ===
 scheduler.add_job(scheduled_signal, "cron", hour=8, minute=0)
-
 async def on_startup(dp):
     scheduler.start()
     logging.info("Бот запущен и готов к работе.")
