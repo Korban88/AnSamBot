@@ -1,112 +1,107 @@
 import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils import executor
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from datetime import datetime, timedelta
 import asyncio
+from aiogram import Bot, Dispatcher, types, executor
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.exceptions import TelegramAPIError
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from crypto_utils import get_top_ton_wallet_coins
 
-API_TOKEN = '8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c'
-ADMIN_ID = 347552741
+# Токен и ID
+BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
+USER_ID = 347552741
 
+# Логгирование
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-bot = Bot(token=API_TOKEN)
+# Инициализация
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
 
-# Хранилище отслеживаемых монет
-tracked_coins = {}
+# Глобальное хранилище монет для отслеживания
+tracked_coin = None
+tracked_price = None
+tracked_start_time = None
 
-# Кнопки
-main_kb = ReplyKeyboardMarkup(resize_keyboard=True)
-main_kb.add(KeyboardButton("Получить ещё сигнал"), KeyboardButton("Следить за монетой"))
+# Функция для отправки сигнала
+async def send_signal(message_obj):
+    try:
+        coin = get_top_ton_wallet_coins()
+        name = coin['name']
+        price = float(coin['price'])
+        change_24h = float(coin['change_24h'])
+        change_7d = float(coin['change_7d'])
+        volume = coin['volume']
 
-@dp.message_handler(commands=['start'])
-async def start_cmd(message: types.Message):
-    await message.answer("Добро пожаловать в AnSam Bot!", reply_markup=main_kb)
+        target_price = price * 1.05
+        stop_loss = price * 0.955
+        probability = coin.get("probability", "~80%")
 
-@dp.message_handler(commands=['test'])
-async def test_cmd(message: types.Message):
-    await send_signal(message.chat.id)
-
-@dp.message_handler(lambda message: message.text == "Получить ещё сигнал")
-async def get_signal(message: types.Message):
-    await send_signal(message.chat.id)
-
-@dp.message_handler(lambda message: message.text == "Следить за монетой")
-async def follow_coin(message: types.Message):
-    coin = await get_top_ton_wallet_coins()
-    if coin:
-        coin_id = coin['id']
-        tracked_coins[coin_id] = {
-            'start_price': coin['price'],
-            'start_time': datetime.now(),
-            'user_id': message.chat.id
-        }
-        await message.answer(f"Начинаю отслеживать монету {coin_id.upper()} по цене {coin['price']} USD")
-    else:
-        await message.answer("Не удалось начать отслеживание монеты.")
-
-async def send_signal(chat_id):
-    coin = await get_top_ton_wallet_coins()
-    if coin:
-        probability = min(95, max(50, coin['score'] * 15))
-        text = (
-            f"🔥 Сигнал на рост монеты: {coin['id'].upper()}\n"
-            f"Текущая цена: {coin['price']} USD\n"
-            f"Изменение за 24ч: {coin['change_24h']}%\n"
-            f"Изменение за 7д: {coin['change_7d']}%\n"
-            f"Объём: {coin['volume']} USD\n"
-            f"🎯 Цель: +5%\n"
-            f"🔐 Вероятность роста: {probability}%"
+        signal_msg = (
+            f"📈 Сигнал на рост монеты:\n"
+            f"\n📅 Монета: {name}\n"
+            f"📉 Цена входа: ${price:.4f}\n"
+            f"🔢 Цель +5%: ${target_price:.4f}\n"
+            f"⛔️ Стоп-лосс: ${stop_loss:.4f}\n"
+            f"📊 Изменение за 24ч: {change_24h:.2f}%\n"
+            f"📊 Изменение за 7д: {change_7d:.2f}%\n"
+            f"💰 Объем: ${volume}\n"
+            f"🔮 Вероятность роста: {probability}"
         )
-        await bot.send_message(chat_id, text, reply_markup=main_kb)
-    else:
-        await bot.send_message(chat_id, "Не удалось получить сигнал.", reply_markup=main_kb)
 
-async def check_tracked_coins():
-    now = datetime.now()
-    for coin_id, data in list(tracked_coins.items()):
-        try:
-            user_id = data['user_id']
-            start_price = data['start_price']
-            start_time = data['start_time']
-            current_data = await get_top_ton_wallet_coins()
+        keyboard = InlineKeyboardMarkup().add(
+            InlineKeyboardButton("🚀 Получить ещё сигнал", callback_data="get_signal"),
+            InlineKeyboardButton("🔔 Следить за монетой", callback_data="track_signal")
+        )
 
-            if not current_data or current_data['id'] != coin_id:
-                continue
+        await message_obj.answer(signal_msg, reply_markup=keyboard)
+        return coin
 
-            current_price = current_data['price']
-            change = ((current_price - start_price) / start_price) * 100
+    except Exception as e:
+        logger.error(f"\u041e\u0448\u0438\u0431\u043a\u0430 \u043f\u0440\u0438 \u0430\u043d\u0430\u043b\u0438\u0437\u0435 \u043c\u043e\u043d\u0435\u0442: {e}")
+        await message_obj.answer(f"⚠️ Ошибка при анализе монет: {e}")
+        return None
 
-            if change >= 5:
-                await bot.send_message(user_id, f"🚀 Монета {coin_id.upper()} выросла на +5% с момента отслеживания! Цена: {current_price} USD")
-                tracked_coins.pop(coin_id)
-            elif now - start_time >= timedelta(hours=12):
-                direction = "выросла" if change > 0 else "упала"
-                await bot.send_message(user_id, f"⌛ 12 часов прошло. Монета {coin_id.upper()} {direction} на {round(abs(change), 2)}%. Отслеживание завершено.")
-                tracked_coins.pop(coin_id)
-            elif change >= 3.5:
-                await bot.send_message(user_id, f"📈 Монета {coin_id.upper()} выросла на +3.5%! Текущая цена: {current_price} USD")
-        except Exception as e:
-            logging.error(f"Ошибка при проверке монеты {coin_id}: {e}")
+# /start
+@dp.message_handler(commands=['start'])
+async def cmd_start(message: types.Message):
+    await message.answer("Бот активирован. Ждите сигналы каждый день в 8:00 МСК.")
 
+# /test
+@dp.message_handler(commands=['test'])
+async def cmd_test(message: types.Message):
+    await send_signal(message)
+
+# Обработка кнопок
+@dp.callback_query_handler(lambda c: c.data == 'get_signal')
+async def handle_get_signal(callback: types.CallbackQuery):
+    await callback.answer()
+    await send_signal(callback.message)
+
+@dp.callback_query_handler(lambda c: c.data == 'track_signal')
+async def handle_track(callback: types.CallbackQuery):
+    global tracked_coin, tracked_price, tracked_start_time
+    await callback.answer()
+    tracked_coin = await send_signal(callback.message)
+    if tracked_coin:
+        tracked_price = float(tracked_coin['price'])
+        tracked_start_time = asyncio.get_event_loop().time()
+        logger.info(f"Started tracking {tracked_coin['name']} at price {tracked_price}")
+
+# Ежедневно в 8:00 МСК
 async def scheduled_signal():
-    await send_signal(ADMIN_ID)
+    try:
+        await bot.send_message(USER_ID, "\ud83c\udf1f Ежедневный сигнал")
+        dummy = types.Message(message_id=1, chat=types.Chat(id=USER_ID, type='private'), date=None)
+        await send_signal(dummy)
+    except TelegramAPIError as e:
+        logger.error(f"\u0421\u0431\u043e\u0439 \u043f\u0440\u0438 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f: {e}")
 
-async def scheduler_task():
-    while True:
-        await check_tracked_coins()
-        await asyncio.sleep(600)  # каждые 10 минут
+scheduler.add_job(scheduled_signal, 'cron', hour=8, minute=0)
 
-async def on_startup(_):
-    scheduler.add_job(scheduled_signal, 'cron', hour=8, minute=0)
+# Запуск
+if __name__ == "__main__":
     scheduler.start()
-    asyncio.create_task(scheduler_task())
-    logging.info("Бот запущен и готов к работе.")
-
-if __name__ == '__main__':
-    from aiogram import executor
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+    logger.info("\u0411\u043e\u0442 запущен и готов к работе.")
+    executor.start_polling(dp, skip_updates=True)
