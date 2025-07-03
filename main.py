@@ -44,8 +44,12 @@ async def start_again(message: types.Message):
 # === Кнопка 'Получить ещё сигнал' ===
 @dp.message_handler(lambda message: message.text == "🚀 Получить ещё сигнал")
 async def handle_get_signal(message: types.Message):
-    coin = get_top_ton_wallet_coins(randomize=True)
-    if coin:
+    try:
+        coin = get_top_ton_wallet_coins(randomize=True)
+        if not coin:
+            await message.answer("Не удалось найти подходящую монету.")
+            return
+
         price = coin['price']
         target_price = round(price * 1.05, 4)
         stop_loss_price = round(price * 0.965, 4)
@@ -59,8 +63,8 @@ async def handle_get_signal(message: types.Message):
             f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
         )
         await message.answer(text)
-    else:
-        await message.answer("Монеты не найдены.")
+    except Exception as e:
+        await message.answer(f"⚠️ Ошибка при получении сигнала: {str(e)}")
 
 # === Кнопка 'Следить за монетой' ===
 @dp.message_handler(lambda message: message.text == "👁 Следить за монетой")
