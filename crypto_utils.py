@@ -3,7 +3,7 @@ from ton_tokens import get_ton_wallet_tokens
 
 cg = CoinGeckoAPI()
 
-def get_top_coins(top_n: int = 3, min_probability: int = 50):  # ← понижено с 70 до 50
+def get_top_coins(top_n: int = 3, min_probability: int = 60):
     coin_ids = get_ton_wallet_tokens()
     if not coin_ids:
         return []
@@ -29,20 +29,37 @@ def get_top_coins(top_n: int = 3, min_probability: int = 50):  # ← пониж�
             continue
 
         score = 0
+        # Анализ 24h динамики
         if change_24h > 0:
             score += 2
-        if change_7d is not None and change_7d > 0:
-            score += 1
-        if volume > 1_000_000:
-            score += 1
         if change_24h > 3:
-            score += 1
+            score += 2
         if change_24h > 5:
             score += 1
-        if change_24h < -1:
+        if change_24h < -2:
+            score -= 2
+        if change_24h < -5:
             score -= 2
 
-        probability = min(100, max(30, score * 10))
+        # Анализ 7d тренда
+        if change_7d is not None:
+            if change_7d > 5:
+                score += 2
+            elif change_7d > 0:
+                score += 1
+            elif change_7d < -3:
+                score -= 1
+
+        # Объём торгов
+        if volume > 100_000_000:
+            score += 2
+        elif volume > 10_000_000:
+            score += 1
+        elif volume < 1_000_000:
+            score -= 1
+
+        # Нормализация вероятности
+        probability = min(100, max(20, score * 10))
 
         scored_coins.append({
             'id': name,
@@ -57,9 +74,4 @@ def get_top_coins(top_n: int = 3, min_probability: int = 50):  # ← пониж�
         })
 
     filtered = [coin for coin in scored_coins if coin['probability'] >= min_probability]
-    
-    if not filtered:
-        print("ℹ️ Нет монет с probability >= min_probability. Возвращаю top_n по убыванию вероятности.")
-        return sorted(scored_coins, key=lambda x: x['probability'], reverse=True)[:top_n]
-    
-    return sorted(filtered, key=lambda x: x['probability'], reverse=True)[:top_n]
+    return sorted(filtered, key=lambda x: x['probability'], reverse=True)[:top_n] or sorted(scored_coins, key=lambda x: x['probability'], reverse=True)[:top_n]
