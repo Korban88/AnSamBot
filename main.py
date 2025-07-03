@@ -53,20 +53,23 @@ async def send_signals(message: types.Message):
             target_price = coin['target_price']
             stop_loss_price = coin['stop_loss_price']
 
+            def escape(text):
+                return str(text).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("+", "\\+").replace("%", "\\%").replace("$", "\\$")
+
             text = (
                 f"*💰 Сигнал:*\n"
-                f"Монета: *{name}*\n"
-                f"Цена: *{price} \\$*\n"
-                f"Рост за 24ч: *{change}\\%*\n"
-                f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: *{probability}\\%*\n"
-                f"🎯 Цель: *{target_price} \\$* \\(\\+5\\%\\)\n"
-                f"⛔️ Стоп\\-лосс: *{stop_loss_price} \\$* \\(\\-3\\.5\\%\\)"
+                f"Монета: *{escape(name)}*\n"
+                f"Цена: *{escape(price)} \\$*\n"
+                f"Рост за 24ч: *{escape(change)}\\%*\n"
+                f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: *{escape(probability)}\\%*\n"
+                f"🎯 Цель: *{escape(target_price)} \\$* \\(\\+5\\%\\)\n"
+                f"⛔️ Стоп\\-лосс: *{escape(stop_loss_price)} \\$* \\(\\-3\\.5\\%\\)"
             )
 
             await message.answer(text)
 
         except Exception as e:
-            safe_error = str(e).replace(".", "\\.").replace("-", "\\-").replace("(", "\\(").replace(")", "\\)")
+            safe_error = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("_", "\\_")
             await message.answer(f"⚠️ Ошибка: {safe_error}")
 
 @dp.message_handler(Text(equals="👁 Следить за монетой"))
@@ -89,7 +92,7 @@ async def track_coin(message: types.Message):
         )
 
     except Exception as e:
-        safe_error = str(e).replace(".", "\\.").replace("-", "\\-").replace("(", "\\(").replace(")", "\\)")
+        safe_error = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)")
         await message.answer(f"❌ Ошибка запуска отслеживания: {safe_error}")
 
 @dp.message_handler(Text(equals="🔴 Остановить все отслеживания"))
