@@ -13,7 +13,8 @@ USER_ID = 347552741
 
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=BOT_TOKEN, parse_mode="MarkdownV2")
+# Отключаем MarkdownV2, ставим None
+bot = Bot(token=BOT_TOKEN, parse_mode=None)
 dp = Dispatcher(bot)
 
 tracker = None
@@ -24,17 +25,13 @@ keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
 keyboard.add(KeyboardButton("👁 Следить за монетой"))
 keyboard.add(KeyboardButton("🔴 Остановить все отслеживания"))
 
-def esc(text):
-    return str(text).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)")\
-        .replace("+", "\\+").replace("%", "\\%").replace("$", "\\$").replace("_", "\\_")
-
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
     await message.answer("Добро пожаловать в новую жизнь, Корбан!", reply_markup=keyboard)
 
 @dp.message_handler(Text(equals="🟢 Старт"))
 async def activate_bot(message: types.Message):
-    await message.answer("Бот активирован\\. Ждите сигналы каждый день в 8\\:00 МСК\\.")
+    await message.answer("Бот активирован. Ждите сигналы каждый день в 8:00 МСК.")
 
 @dp.message_handler(Text(equals="🚀 Получить ещё сигнал"))
 async def send_signals(message: types.Message):
@@ -47,7 +44,7 @@ async def send_signals(message: types.Message):
         await message.answer(f"Найдено монет: {len(coins)}")
 
         if not coins:
-            await message.answer("Не удалось получить сигналы\\. Попробуйте позже\\.")
+            await message.answer("Не удалось получить сигналы. Попробуйте позже.")
             logging.warning("Список монет пуст, сигнал не отправлен.")
             return
 
@@ -61,25 +58,24 @@ async def send_signals(message: types.Message):
                 stop_loss_price = coin['stop_loss_price']
 
                 text = (
-                    f"*💰 Сигнал:*\n"
-                    f"Монета: *{esc(name)}*\n"
-                    f"Цена: *{esc(price)} \\$*\n"
-                    f"Рост за 24ч: *{esc(change)}\\%*\n"
-                    f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: *{esc(probability)}\\%*\n"
-                    f"🎯 Цель: *{esc(target_price)} \\$* \\(\\+5\\%\\)\n"
-                    f"⛔️ Стоп\\-лосс: *{esc(stop_loss_price)} \\$* \\(\\-3\\.5\\%\\)"
+                    f"Сигнал:\n"
+                    f"Монета: {name}\n"
+                    f"Цена: {price} $\n"
+                    f"Рост за 24ч: {change}%\n"
+                    f"Вероятность роста: {probability}%\n"
+                    f"Цель: {target_price} $\n"
+                    f"Стоп-лосс: {stop_loss_price} $"
                 )
 
                 await message.answer(text)
 
             except Exception as e:
-                safe_err = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(")\
-                    .replace(")", "\\)").replace("_", "\\_")
-                await message.answer(f"⚠️ Ошибка: {safe_err}")
+                logging.error(f"Ошибка при формировании сообщения: {e}")
+                await message.answer(f"⚠️ Ошибка: {e}")
 
     except Exception as e:
         logging.error(f"Ошибка в get_top_coins: {e}")
-        await message.answer(f"Произошла ошибка при получении сигналов: {str(e)}")
+        await message.answer(f"Произошла ошибка при получении сигналов: {e}")
 
 @dp.message_handler(Text(equals="👁 Следить за монетой"))
 async def track_coin(message: types.Message):
@@ -98,19 +94,19 @@ async def track_coin(message: types.Message):
         tracker.run()
 
         await message.answer(
-            f"👁 Запущено отслеживание *{coin_id}*\nТекущая цена: *{entry_price} \\$*"
+            f"Запущено отслеживание {coin_id}\nТекущая цена: {entry_price} $"
         )
 
     except Exception as e:
-        safe_error = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)")
-        await message.answer(f"❌ Ошибка запуска отслеживания: {safe_error}")
+        logging.error(f"Ошибка запуска отслеживания: {e}")
+        await message.answer(f"❌ Ошибка запуска отслеживания: {e}")
 
 @dp.message_handler(Text(equals="🔴 Остановить все отслеживания"))
 async def stop_tracking(message: types.Message):
     global tracker
     if tracker:
         tracker.stop_all_tracking()
-        await message.answer("⛔️ Все отслеживания монет остановлены.")
+        await message.answer("Все отслеживания монет остановлены.")
     else:
         await message.answer("Нечего останавливать.")
 
