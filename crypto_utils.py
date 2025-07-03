@@ -3,11 +3,11 @@ from ton_tokens import get_ton_wallet_tokens
 
 cg = CoinGeckoAPI()
 
-def get_top_ton_wallet_coins(top_n=1, randomize=False):
+def get_top_ton_wallet_coins(top_n=3):
     coin_ids = get_ton_wallet_tokens()
 
     if not coin_ids:
-        return None
+        return []
 
     coins = cg.get_coins_markets(
         vs_currency='usd',
@@ -30,36 +30,25 @@ def get_top_ton_wallet_coins(top_n=1, randomize=False):
             continue
 
         score = 0
-        if change_24h > 0:
-            score += 2
-        if change_7d is not None and change_7d > 0:
-            score += 1
-        if volume > 1_000_000:
-            score += 1
-        if change_24h > 3:
-            score += 1
-        if change_24h > 5:
-            score += 1
-        if change_24h < -1:
-            score -= 2
+        if change_24h > 0: score += 2
+        if change_24h > 3: score += 2
+        if change_24h > 5: score += 2
+        if change_7d and change_7d > 0: score += 1
+        if volume > 1_000_000: score += 2
+        if volume > 5_000_000: score += 1
+        if change_24h < -1: score -= 3
+
+        probability = min(max(50 + score * 5, 0), 95)  # от 0% до 95%
 
         scored_coins.append({
             'id': name,
             'price': round(price, 4),
             'change_24h': round(change_24h, 2),
-            'change_7d': round(change_7d, 2) if change_7d is not None else 0,
+            'change_7d': round(change_7d, 2) if change_7d else 0,
             'volume': int(volume),
-            'score': score
+            'score': score,
+            'probability': probability
         })
 
-    if not scored_coins:
-        return None
-
-    # Сортировка по score
     sorted_coins = sorted(scored_coins, key=lambda x: x['score'], reverse=True)
-
-    if randomize:
-        import random
-        return [random.choice(sorted_coins[:top_n])]
-
     return sorted_coins[:top_n]
