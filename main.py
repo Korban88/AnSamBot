@@ -44,11 +44,11 @@ async def activate_bot(message: types.Message):
 @dp.message_handler(Text(equals="🚀 Получить ещё сигнал"))
 async def send_signals(message: types.Message):
     coins = get_top_coins()
-print("COINS:", coins)  # лог в терминал
+    print("COINS:", coins)  # лог в терминал
 
-if not coins:
-    await message.answer("Не удалось получить сигналы. Попробуйте позже.")
-    return
+    if not coins:
+        await message.answer("Не удалось получить сигналы. Попробуйте позже.")
+        return
 
     for coin in coins:
         try:
