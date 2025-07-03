@@ -40,39 +40,44 @@ async def send_signals(message: types.Message):
     logging.info("Нажата кнопка 'Получить ещё сигнал'")
     await message.answer("⚙️ Обработка сигнала...")
 
-    coins = get_top_coins()
-    logging.info(f"COINS: {coins}")
+    try:
+        coins = get_top_coins()
+        logging.info(f"COINS: {coins}")
+        await message.answer(f"Найдено монет: {len(coins)}")
 
-    if not coins:
-        await message.answer("Не удалось получить сигналы\\. Попробуйте позже\\.")
-        return
+        if not coins:
+            await message.answer("Не удалось получить сигналы\\. Попробуйте позже\\.")
+            logging.warning("Список монет пуст, сигнал не отправлен.")
+            return
 
-    await message.answer(f"Найдено монет: {len(coins)}")
+        for coin in coins:
+            try:
+                name = coin['id']
+                price = coin['price']
+                change = coin['change_24h']
+                probability = coin['probability']
+                target_price = coin['target_price']
+                stop_loss_price = coin['stop_loss_price']
 
-    for coin in coins:
-        try:
-            name = coin['id']
-            price = coin['price']
-            change = coin['change_24h']
-            probability = coin['probability']
-            target_price = coin['target_price']
-            stop_loss_price = coin['stop_loss_price']
+                text = (
+                    f"*💰 Сигнал:*\n"
+                    f"Монета: *{esc(name)}*\n"
+                    f"Цена: *{esc(price)} \\$*\n"
+                    f"Рост за 24ч: *{esc(change)}\\%*\n"
+                    f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: *{esc(probability)}\\%*\n"
+                    f"🎯 Цель: *{esc(target_price)} \\$* \\(\\+5\\%\\)\n"
+                    f"⛔️ Стоп\\-лосс: *{esc(stop_loss_price)} \\$* \\(\\-3\\.5\\%\\)"
+                )
 
-            text = (
-                f"*💰 Сигнал:*\n"
-                f"Монета: *{esc(name)}*\n"
-                f"Цена: *{esc(price)} \\$*\n"
-                f"Рост за 24ч: *{esc(change)}\\%*\n"
-                f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: *{esc(probability)}\\%*\n"
-                f"🎯 Цель: *{esc(target_price)} \\$* \\(\\+5\\%\\)\n"
-                f"⛔️ Стоп\\-лосс: *{esc(stop_loss_price)} \\$* \\(\\-3\\.5\\%\\)"
-            )
+                await message.answer(text)
 
-            await message.answer(text)
+            except Exception as e:
+                safe_err = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("_", "\\_")
+                await message.answer(f"⚠️ Ошибка: {safe_err}")
 
-        except Exception as e:
-            safe_err = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("_", "\\_")
-            await message.answer(f"⚠️ Ошибка: {safe_err}")
+    except Exception as e:
+        logging.error(f"Ошибка в get_top_coins: {e}")
+        await message.answer(f"Произошла ошибка при получении сигналов: {str(e)}")
 
 @dp.message_handler(Text(equals="👁 Следить за монетой"))
 async def track_coin(message: types.Message):
