@@ -25,12 +25,9 @@ main_menu.add(
     types.KeyboardButton("🛑 Остановить все отслеживания")
 )
 
-shown_coins = []
-
 # === /start ===
 @dp.message_handler(commands=["start"])
 async def start_command(message: types.Message):
-    shown_coins.clear()
     await message.answer(
         "Добро пожаловать! Бот активирован. Ждите сигналы каждый день в 8:00 МСК.",
         reply_markup=main_menu
@@ -39,7 +36,6 @@ async def start_command(message: types.Message):
 # === Кнопка 'Старт' — повторяет /start ===
 @dp.message_handler(lambda message: message.text == "🟢 Старт")
 async def start_again(message: types.Message):
-    shown_coins.clear()
     await message.answer(
         "Бот активирован. Ждите сигналы каждый день в 8:00 МСК.",
         reply_markup=main_menu
@@ -50,24 +46,34 @@ async def start_again(message: types.Message):
 async def handle_get_signal(message: types.Message):
     try:
         coins = get_top_ton_wallet_coins(top_n=3)
+        if not coins:
+            await message.answer("Не удалось найти подходящие монеты.")
+            return
+
         for coin in coins:
-            if coin['id'] not in shown_coins:
-                shown_coins.append(coin['id'])
-                price = coin['price']
-                target_price = round(price * 1.05, 4)
-                stop_loss_price = round(price * 0.965, 4)
-                text = (
-                    f"💰 Сигнал:\n"
-                    f"Монета: {coin['id']}\n"
-                    f"Цена: {price} $\n"
-                    f"Рост за 24ч: {coin['change_24h']}%\n"
-                    f"Вероятность роста: {coin['score']}%\n"
-                    f"🎯 Цель: {target_price} $ (+5%)\n"
-                    f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
-                )
-                await message.answer(text)
-                return
-        await message.answer("📭 Все доступные сигналы уже показаны. Попробуйте позже.")
+            price = coin['price']
+            target_price = round(price * 1.05, 4)
+            stop_loss_price = round(price * 0.965, 4)
+            probability = coin['probability']
+
+            # Цвет вероятности
+            if probability >= 80:
+                emoji = "🟢"
+            elif probability >= 60:
+                emoji = "🟡"
+            else:
+                emoji = "🔴"
+
+            text = (
+                f"💰 Сигнал:\n"
+                f"Монета: {coin['id']}\n"
+                f"Цена: {price} $\n"
+                f"Рост за 24ч: {coin['change_24h']}%\n"
+                f"{emoji} Вероятность роста: {probability}%\n"
+                f"🎯 Цель: {target_price} $ (+5%)\n"
+                f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
+            )
+            await message.answer(text)
     except Exception as e:
         await message.answer(f"⚠️ Ошибка при получении сигнала: {str(e)}")
 
@@ -97,12 +103,21 @@ async def scheduled_signal():
         price = coin['price']
         target_price = round(price * 1.05, 4)
         stop_loss_price = round(price * 0.965, 4)
+        probability = coin['probability']
+
+        if probability >= 80:
+            emoji = "🟢"
+        elif probability >= 60:
+            emoji = "🟡"
+        else:
+            emoji = "🔴"
+
         text = (
             f"💰 Сигнал:\n"
             f"Монета: {coin['id']}\n"
             f"Цена: {price} $\n"
             f"Рост за 24ч: {coin['change_24h']}%\n"
-            f"Вероятность роста: {coin['score']}%\n"
+            f"{emoji} Вероятность роста: {probability}%\n"
             f"🎯 Цель: {target_price} $ (+5%)\n"
             f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
         )
