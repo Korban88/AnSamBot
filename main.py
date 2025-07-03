@@ -25,7 +25,8 @@ keyboard.add(KeyboardButton("👁 Следить за монетой"))
 keyboard.add(KeyboardButton("🔴 Остановить все отслеживания"))
 
 def esc(text):
-    return str(text).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("+", "\\+").replace("%", "\\%").replace("$", "\\$").replace("_", "\\_")
+    return str(text).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)")\
+        .replace("+", "\\+").replace("%", "\\%").replace("$", "\\$").replace("_", "\\_")
 
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
@@ -72,7 +73,8 @@ async def send_signals(message: types.Message):
                 await message.answer(text)
 
             except Exception as e:
-                safe_err = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("_", "\\_")
+                safe_err = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(")\
+                    .replace(")", "\\)").replace("_", "\\_")
                 await message.answer(f"⚠️ Ошибка: {safe_err}")
 
     except Exception as e:
