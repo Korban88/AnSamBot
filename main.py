@@ -66,7 +66,8 @@ async def send_signals(message: types.Message):
             await message.answer(text)
 
         except Exception as e:
-            await message.answer(f"⚠️ Ошибка: {str(e).replace('.', '\\.')}")
+            safe_error = str(e).replace(".", "\\.").replace("-", "\\-").replace("(", "\\(").replace(")", "\\)")
+            await message.answer(f"⚠️ Ошибка: {safe_error}")
 
 @dp.message_handler(Text(equals="👁 Следить за монетой"))
 async def track_coin(message: types.Message):
@@ -88,7 +89,8 @@ async def track_coin(message: types.Message):
         )
 
     except Exception as e:
-        await message.answer(f"❌ Ошибка запуска отслеживания: {str(e).replace('.', '\\.')}")
+        safe_error = str(e).replace(".", "\\.").replace("-", "\\-").replace("(", "\\(").replace(")", "\\)")
+        await message.answer(f"❌ Ошибка запуска отслеживания: {safe_error}")
 
 @dp.message_handler(Text(equals="🔴 Остановить все отслеживания"))
 async def stop_tracking(message: types.Message):
