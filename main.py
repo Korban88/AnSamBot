@@ -1,39 +1,45 @@
 import asyncio
+import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils import executor
 from aiogram.dispatcher.filters import Text
+
 from crypto_utils import get_top_coins
 from tracking import CoinTracker
-import logging
+from scheduler import schedule_daily_signal
+from pycoingecko import CoinGeckoAPI
 
-# Токен твоего бота
+# Токен
 BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 
+# Настройки
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN, parse_mode="MarkdownV2")
 dp = Dispatcher(bot)
-tracker = CoinTracker()
 
-# Кнопки
+# Глобальный трекер (будет создан при запуске отслеживания)
+tracker = None
+
+# Клавиатура
 keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
 keyboard.add(KeyboardButton("🟢 Старт"))
 keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
 keyboard.add(KeyboardButton("👁 Следить за монетой"))
 keyboard.add(KeyboardButton("🔴 Остановить все отслеживания"))
 
-# Команда /start
+# /start
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
     await message.answer("Добро пожаловать в новую жизнь, Корбан!", reply_markup=keyboard)
 
-# Кнопка Старт
+# Старт
 @dp.message_handler(Text(equals="🟢 Старт"))
 async def activate_bot(message: types.Message):
     await message.answer("Бот активирован. Ждите сигналы каждый день в 8:00 МСК.")
 
-# Кнопка Получить ещё сигнал
+# Получить ещё сигнал
 @dp.message_handler(Text(equals="🚀 Получить ещё сигнал"))
 async def send_signals(message: types.Message):
     coins = get_top_coins()
@@ -65,19 +71,38 @@ async def send_signals(message: types.Message):
         except Exception as e:
             await message.answer(f"⚠️ Ошибка: {e}")
 
-# Кнопка Остановить все отслеживания
-@dp.message_handler(Text(equals="🔴 Остановить все отслеживания"))
-async def stop_tracking(message: types.Message):
-    tracker.clear_tracking()
-    await message.answer("Все отслеживания монет остановлены.")
-
-# Кнопка Следить за монетой (заглушка)
+# Следить за монетой
 @dp.message_handler(Text(equals="👁 Следить за монетой"))
 async def track_coin(message: types.Message):
-    await message.answer("⚙️ В разработке: интеллектуальное отслеживание монет.")
+    global tracker
+    user_id = message.from_user.id
+    coin_id = "toncoin"  # ← или сделай выбор позже, пока фиксированная монета
+
+    cg = CoinGeckoAPI()
+    try:
+        price_data = cg.get_price(ids=coin_id, vs_currencies='usd')
+        entry_price = float(price_data[coin_id]["usd"])
+
+        tracker = CoinTracker(bot, user_id)
+        tracker.start_tracking(coin_id, entry_price)
+        tracker.run()
+
+        await message.answer(f"👁 Запущено отслеживание *{coin_id}*\nТекущая цена: *{entry_price}$*")
+
+    except Exception as e:
+        await message.answer(f"❌ Ошибка запуска отслеживания: {e}")
+
+# Остановить все отслеживания
+@dp.message_handler(Text(equals="🔴 Остановить все отслеживания"))
+async def stop_tracking(message: types.Message):
+    global tracker
+    if tracker:
+        tracker.stop_all_tracking()
+        await message.answer("⛔️ Все отслеживания монет остановлены.")
+    else:
+        await message.answer("Нечего останавливать.")
 
 # Запуск
 if __name__ == '__main__':
-    from scheduler import schedule_daily_signal
     schedule_daily_signal(dp, bot, get_top_coins)
     executor.start_polling(dp, skip_updates=True)
