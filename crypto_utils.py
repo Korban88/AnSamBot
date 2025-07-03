@@ -5,7 +5,6 @@ cg = CoinGeckoAPI()
 
 def get_top_ton_wallet_coins(top_n=3):
     coin_ids = get_ton_wallet_tokens()
-
     if not coin_ids:
         return []
 
@@ -17,7 +16,8 @@ def get_top_ton_wallet_coins(top_n=3):
         price_change_percentage='24h,7d'
     )
 
-    scored_coins = []
+    # Расчёт оценки и сбор данных
+    coin_data = []
     for coin in coins:
         price = coin.get('current_price')
         volume = coin.get('total_volume')
@@ -28,42 +28,42 @@ def get_top_ton_wallet_coins(top_n=3):
         if price is None or volume is None or change_24h is None:
             continue
 
+        # Считаем "сырую" перспективность
         score = 0
-        if change_24h > 0:
-            score += 2
-        if change_7d is not None and change_7d > 0:
-            score += 1
+        score += change_24h * 0.6
+        if change_7d is not None:
+            score += change_7d * 0.2
         if volume > 1_000_000:
-            score += 1
-        if change_24h > 3:
-            score += 1
+            score += 5
         if change_24h > 5:
-            score += 1
-        if change_24h < -1:
-            score -= 2
+            score += 3
+        if change_24h < 0:
+            score -= 4
 
-        probability = min(100, max(10, 50 + score * 10))
-
-        scored_coins.append({
+        coin_data.append({
             'id': name,
             'price': round(price, 4),
             'change_24h': round(change_24h, 2),
-            'change_7d': round(change_7d, 2) if change_7d is not None else 0,
+            'change_7d': round(change_7d, 2) if change_7d else 0,
             'volume': int(volume),
-            'score': score,
-            'probability': probability
+            'raw_score': score
         })
 
-    # Сортировка по убыванию score
-    scored_coins.sort(key=lambda x: x['score'], reverse=True)
+    if not coin_data:
+        return []
 
-    # Сначала отбираем только перспективные (probability >= 70%)
-    top_confident = [coin for coin in scored_coins if coin['probability'] >= 70]
+    # Нормализация вероятности (относительно лучших)
+    max_score = max(c['raw_score'] for c in coin_data)
+    min_score = min(c['raw_score'] for c in coin_data)
 
-    # Если перспективных хватает — возвращаем их
-    if len(top_confident) >= top_n:
-        return top_confident[:top_n]
+    for c in coin_data:
+        if max_score == min_score:
+            prob = 50
+        else:
+            prob = ((c['raw_score'] - min_score) / (max_score - min_score)) * 50 + 50
+        c['probability'] = int(prob)
 
-    # Если нет — добираем из остальных
-    top_general = scored_coins[:top_n]
-    return top_general
+    # Отбор топ монет
+    top_coins = sorted(coin_data, key=lambda x: x['probability'], reverse=True)[:top_n]
+
+    return top_coins
