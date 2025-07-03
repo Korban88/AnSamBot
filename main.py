@@ -41,18 +41,32 @@ async def activate_bot(message: types.Message):
 @dp.message_handler(Text(equals="🚀 Получить ещё сигнал"))
 async def send_signals(message: types.Message):
     logging.info("Нажата кнопка 'Получить ещё сигнал'")
-    await message.answer("⚙️ Обработка сигнала...")
+    try:
+        await message.answer("⚙️ Обработка сигнала...")
+    except Exception as e:
+        logging.error(f"Ошибка при отправке стартового сообщения: {e}")
 
     try:
         coins = get_top_coins()
-        logging.info(f"COINS: {coins}")
+        logging.info(f"Получено монет: {len(coins)}")
+    except Exception as e:
+        logging.error(f"Ошибка в get_top_coins(): {e}")
+        try:
+            await message.answer(f"Ошибка при получении сигналов: {e}")
+        except Exception as ex:
+            logging.error(f"Ошибка при отправке сообщения об ошибке get_top_coins: {ex}")
+        return
 
-        if not coins:
-            await message.answer("Не удалось получить сигналы\\. Попробуйте позже\\.")
-            logging.warning("Список монет пуст, сигнал не отправлен.")
-            return
+    if not coins:
+        logging.warning("Список монет пуст, сигнал не отправлен.")
+        try:
+            await message.answer("Не удалось получить сигналы. Попробуйте позже.")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке сообщения о пустом списке монет: {e}")
+        return
 
-        for coin in coins:
+    for coin in coins:
+        try:
             text_md = (
                 f"*💰 Сигнал:*\n"
                 f"Монета: *{esc_md(str(coin['id']))}*\n"
@@ -71,20 +85,24 @@ async def send_signals(message: types.Message):
                 f"Цель: {coin['target_price']} $\n"
                 f"Стоп-лосс: {coin['stop_loss_price']} $"
             )
-            try:
-                await message.answer(text_md, parse_mode="MarkdownV2")
-                logging.info(f"Отправлен сигнал по монете: {coin['id']} с MarkdownV2")
-            except Exception as e:
-                logging.error(f"Ошибка MarkdownV2 при отправке {coin['id']}: {e}. Отправляю без форматирования.")
-                try:
-                    await message.answer(text_plain, parse_mode=None)
-                except Exception as ex:
-                    logging.error(f"Ошибка при отправке без форматирования {coin['id']}: {ex}")
-                    await message.answer(f"⚠️ Ошибка при отправке сигнала по монете {coin['id']}")
+        except Exception as e:
+            logging.error(f"Ошибка при формировании текста по монете {coin}: {e}")
+            continue
 
-    except Exception as e:
-        logging.error(f"Ошибка в get_top_coins: {e}")
-        await message.answer(f"Произошла ошибка при получении сигналов: {e}")
+        try:
+            await message.answer(text_md, parse_mode="MarkdownV2")
+            logging.info(f"Отправлен сигнал по монете {coin['id']} с MarkdownV2")
+        except Exception as e:
+            logging.error(f"Ошибка MarkdownV2 при отправке {coin['id']}: {e}, пробую отправить без форматирования")
+            try:
+                await message.answer(text_plain)
+                logging.info(f"Отправлен сигнал по монете {coin['id']} без форматирования")
+            except Exception as ex:
+                logging.error(f"Ошибка при отправке без форматирования {coin['id']}: {ex}")
+                try:
+                    await message.answer(f"⚠️ Ошибка при отправке сигнала по монете {coin['id']}")
+                except Exception as exc:
+                    logging.error(f"Ошибка при отправке сообщения об ошибке {coin['id']}: {exc}")
 
 @dp.message_handler(Text(equals="👁 Следить за монетой"))
 async def track_coin(message: types.Message):
