@@ -24,26 +24,29 @@ def get_top_ton_wallet_coins(top_n=3):
         volume = coin.get('total_volume')
         change_24h = coin.get('price_change_percentage_24h_in_currency')
         change_7d = coin.get('price_change_percentage_7d_in_currency')
-        ath = coin.get('ath')
         name = coin['id']
 
-        # пропускаем монеты с плохими данными
-        if price is None or volume is None or change_24h is None or ath is None:
+        # защита от пустых значений
+        if price is None or volume is None or change_24h is None:
             continue
 
+        # базовая формула оценки
         score = 0
         if change_24h > 0:
-            score += 10
-        if change_24h > 5:
-            score += 10
+            score += 2
         if change_7d and change_7d > 0:
-            score += 10
-        if volume > 10_000_000:
-            score += 10
-        if price < ath * 0.4:
-            score += 10
+            score += 1
+        if volume > 1_000_000:
+            score += 1
+        if change_24h > 3:
+            score += 1
+        if change_24h > 5:
+            score += 1
+        if change_24h < -1:
+            score -= 2
 
-        probability = min(90, 40 + score)  # диапазон 40%–90%
+        # вероятность роста: на основе score, нормализовано в проценты
+        probability = min(max(10 * score + 30, 5), 95)  # диапазон от 5% до 95%
 
         scored_coins.append({
             'id': name,
@@ -55,5 +58,6 @@ def get_top_ton_wallet_coins(top_n=3):
             'probability': probability
         })
 
-    sorted_coins = sorted(scored_coins, key=lambda c: c['score'], reverse=True)
+    # отсортировать по вероятности
+    sorted_coins = sorted(scored_coins, key=lambda c: c['probability'], reverse=True)
     return sorted_coins[:top_n]
