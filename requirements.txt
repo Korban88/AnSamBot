@@ -2,3 +2,4 @@ aiogram==2.25.2
 flask
 apscheduler==3.10.4
 pycoingecko
+numpy
