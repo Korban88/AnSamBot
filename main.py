@@ -7,7 +7,7 @@ from crypto_utils import get_top_ton_wallet_coins
 from tracking import start_tracking, stop_all_trackings
 
 # === Настройки ===
-BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
+BOT_TOKEN = "ТОКЕН_СЮДА"
 ADMIN_ID = 347552741
 
 # === Инициализация ===
@@ -41,52 +41,38 @@ async def start_again(message: types.Message):
         reply_markup=main_menu
     )
 
-# === Состояние текущих монет в очереди сигнала ===
-user_signal_index = {}
-user_top_coins = {}
-
 # === Кнопка 'Получить ещё сигнал' ===
 @dp.message_handler(lambda message: message.text == "🚀 Получить ещё сигнал")
 async def handle_get_signal(message: types.Message):
-    user_id = message.from_user.id
     try:
-        if user_id not in user_top_coins or not user_top_coins[user_id]:
-            user_top_coins[user_id] = get_top_ton_wallet_coins(top_n=3)
-            user_signal_index[user_id] = 0
-
-        top_coins = user_top_coins[user_id]
-        index = user_signal_index[user_id]
-
-        if index >= len(top_coins):
-            await message.answer("🔁 Все 3 монеты уже были показаны. Нажмите ещё раз, чтобы получить новую подборку.")
-            user_top_coins[user_id] = get_top_ton_wallet_coins(top_n=3)
-            user_signal_index[user_id] = 0
+        coins = get_top_ton_wallet_coins(top_n=3)
+        if not coins:
+            await message.answer("Не удалось найти подходящие монеты.")
             return
 
-        coin = top_coins[index]
-        user_signal_index[user_id] += 1
-
-        price = coin['price']
-        target_price = round(price * 1.05, 4)
-        stop_loss_price = round(price * 0.965, 4)
-        text = (
-            f"💰 Сигнал:\n"
-            f"Монета: {coin['id']}\n"
-            f"Цена: {price} $\n"
-            f"Рост за 24ч: {coin['change_24h']}%\n"
-            f"Вероятность роста: {coin['score'] * 10 + 10}%\n"
-            f"🎯 Цель: {target_price} $ (+5%)\n"
-            f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
-        )
-        await message.answer(text)
+        for coin in coins:
+            price = coin['price']
+            target_price = round(price * 1.05, 4)
+            stop_loss_price = round(price * 0.965, 4)
+            text = (
+                f"💰 Сигнал:\n"
+                f"Монета: {coin['id']}\n"
+                f"Цена: {price} $\n"
+                f"Рост за 24ч: {coin['change_24h']}%\n"
+                f"Вероятность роста: {coin['probability']}%\n"
+                f"🎯 Цель: {target_price} $ (+5%)\n"
+                f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
+            )
+            await message.answer(text)
     except Exception as e:
         await message.answer(f"⚠️ Ошибка при получении сигнала: {str(e)}")
 
 # === Кнопка 'Следить за монетой' ===
 @dp.message_handler(lambda message: message.text == "👁 Следить за монетой")
 async def handle_track_coin(message: types.Message):
-    coin = get_top_ton_wallet_coins()[0]
-    if coin:
+    coins = get_top_ton_wallet_coins(top_n=1)
+    if coins:
+        coin = coins[0]
         await start_tracking(bot, message.from_user.id, coin['id'], coin['price'])
         await message.answer(
             f"🛰 Монета {coin['id']} отслеживается. Уведомим при +3.5%, +5% или по итогам 12ч."
@@ -102,8 +88,9 @@ async def handle_stop_tracking(message: types.Message):
 
 # === Ежедневный сигнал в 8:00 ===
 async def scheduled_signal():
-    coin = get_top_ton_wallet_coins()[0]
-    if coin:
+    coins = get_top_ton_wallet_coins(top_n=1)
+    if coins:
+        coin = coins[0]
         price = coin['price']
         target_price = round(price * 1.05, 4)
         stop_loss_price = round(price * 0.965, 4)
@@ -112,7 +99,7 @@ async def scheduled_signal():
             f"Монета: {coin['id']}\n"
             f"Цена: {price} $\n"
             f"Рост за 24ч: {coin['change_24h']}%\n"
-            f"Вероятность роста: {coin['score'] * 10 + 10}%\n"
+            f"Вероятность роста: {coin['probability']}%\n"
             f"🎯 Цель: {target_price} $ (+5%)\n"
             f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
         )
