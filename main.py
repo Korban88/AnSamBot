@@ -16,6 +16,9 @@ dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 logging.basicConfig(level=logging.INFO)
 
+# === Хранилище индекса для пользователя ===
+user_signal_indices = {}
+
 # === Клавиатура меню ===
 main_menu = types.ReplyKeyboardMarkup(resize_keyboard=True)
 main_menu.add(
@@ -50,20 +53,26 @@ async def handle_get_signal(message: types.Message):
             await message.answer("Не удалось найти подходящие монеты.")
             return
 
-        for coin in coins:
-            price = coin['price']
-            target_price = round(price * 1.05, 4)
-            stop_loss_price = round(price * 0.965, 4)
-            text = (
-                f"💰 Сигнал:\n"
-                f"Монета: {coin['id']}\n"
-                f"Цена: {price} $\n"
-                f"Рост за 24ч: {coin['change_24h']}%\n"
-                f"Вероятность роста: {coin['probability']}%\n"
-                f"🎯 Цель: {target_price} $ (+5%)\n"
-                f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
-            )
-            await message.answer(text)
+        user_id = message.from_user.id
+        index = user_signal_indices.get(user_id, 0)
+
+        coin = coins[index % len(coins)]
+        user_signal_indices[user_id] = index + 1
+
+        price = coin['price']
+        target_price = round(price * 1.05, 4)
+        stop_loss_price = round(price * 0.965, 4)
+
+        text = (
+            f"💰 Сигнал:\n"
+            f"Монета: {coin['id']}\n"
+            f"Цена: {price} $\n"
+            f"Рост за 24ч: {coin['change_24h']}%\n"
+            f"Вероятность роста: {coin['probability']}%\n"
+            f"🎯 Цель: {target_price} $ (+5%)\n"
+            f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
+        )
+        await message.answer(text)
     except Exception as e:
         await message.answer(f"⚠️ Ошибка при получении сигнала: {str(e)}")
 
