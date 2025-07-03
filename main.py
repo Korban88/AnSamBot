@@ -12,6 +12,7 @@ from pycoingecko import CoinGeckoAPI
 
 # Токен
 BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
+USER_ID = 347552741  # ← Твой Telegram ID
 
 # Настройки
 logging.basicConfig(level=logging.INFO)
@@ -76,7 +77,7 @@ async def send_signals(message: types.Message):
 async def track_coin(message: types.Message):
     global tracker
     user_id = message.from_user.id
-    coin_id = "toncoin"  # ← или сделай выбор позже, пока фиксированная монета
+    coin_id = "toncoin"  # ← временно фиксированная монета
 
     cg = CoinGeckoAPI()
     try:
@@ -104,5 +105,5 @@ async def stop_tracking(message: types.Message):
 
 # Запуск
 if __name__ == '__main__':
-    schedule_daily_signal(dp, bot, get_top_coins)
+    schedule_daily_signal(dp, bot, get_top_coins, user_id=USER_ID)
     executor.start_polling(dp, skip_updates=True)
