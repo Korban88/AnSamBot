@@ -7,8 +7,10 @@ from crypto_utils import get_top_coins
 
 async def send_daily_signal(bot: Bot, user_id: int, get_top_coins_func):
     coins = get_top_coins_func()
+    print("⏰ Daily check coins:", coins)
+
     if not coins:
-        await bot.send_message(user_id, "Не удалось получить сигналы.")
+        await bot.send_message(user_id, "Не удалось получить сигналы.", parse_mode="MarkdownV2")
         return
 
     coin = coins[0]
@@ -21,15 +23,16 @@ async def send_daily_signal(bot: Bot, user_id: int, get_top_coins_func):
 
     text = (
         f"💰 *Ежедневный сигнал:*\n"
-        f"Монета: {name}\n"
-        f"Цена: *{price} $*\n"
-        f"Рост за 24ч: {change}%\n"
-        f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: {probability}%\n"
-        f"🎯 Цель: *{target_price} $* \\(+5%\\)\n"
-        f"⛔️ Стоп-лосс: {stop_loss_price} $ \\(-3\\.5%\\)"
+        f"Монета: `{name}`\n"
+        f"Цена: *{price} \\$*\n"
+        f"Рост за 24ч: `{change}%`\n"
+        f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: *{probability}%*\n"
+        f"🎯 Цель: *{target_price} \\$* \\(+5%\\)\n"
+        f"⛔️ Стоп-лосс: *{stop_loss_price} \\$* \\(-3\\.5%\\)"
     )
 
-    await bot.send_message(user_id, text)
+    await bot.send_message(user_id, text, parse_mode="MarkdownV2")
+    print(f"✅ Сигнал отправлен пользователю {user_id} в {datetime.now().strftime('%H:%M:%S')}")
 
 def schedule_daily_signal(dp: Dispatcher, bot: Bot, get_top_coins_func, user_id: int = None):
     async def daily_task():
@@ -40,6 +43,7 @@ def schedule_daily_signal(dp: Dispatcher, bot: Bot, get_top_coins_func, user_id:
                 next_run += timedelta(days=1)
 
             wait_seconds = (next_run - now).total_seconds()
+            print(f"⏳ Ожидание до следующего сигнала: {wait_seconds / 60:.1f} минут")
             await asyncio.sleep(wait_seconds)
 
             if user_id:
