@@ -54,22 +54,22 @@ async def handle_get_signal(message: types.Message):
             price = coin['price']
             target_price = round(price * 1.05, 4)
             stop_loss_price = round(price * 0.965, 4)
-            probability = coin['probability']
 
-            # Цвет вероятности
-            if probability >= 80:
-                emoji = "🟢"
-            elif probability >= 60:
-                emoji = "🟡"
+            # цвет вероятности
+            prob = coin['probability']
+            if prob >= 80:
+                color = "🟢"
+            elif prob >= 50:
+                color = "🟡"
             else:
-                emoji = "🔴"
+                color = "🔴"
 
             text = (
                 f"💰 Сигнал:\n"
                 f"Монета: {coin['id']}\n"
                 f"Цена: {price} $\n"
                 f"Рост за 24ч: {coin['change_24h']}%\n"
-                f"{emoji} Вероятность роста: {probability}%\n"
+                f"{color} Вероятность роста: {prob}%\n"
                 f"🎯 Цель: {target_price} $ (+5%)\n"
                 f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
             )
@@ -103,21 +103,16 @@ async def scheduled_signal():
         price = coin['price']
         target_price = round(price * 1.05, 4)
         stop_loss_price = round(price * 0.965, 4)
-        probability = coin['probability']
 
-        if probability >= 80:
-            emoji = "🟢"
-        elif probability >= 60:
-            emoji = "🟡"
-        else:
-            emoji = "🔴"
+        prob = coin['probability']
+        color = "🟢" if prob >= 80 else "🟡" if prob >= 50 else "🔴"
 
         text = (
             f"💰 Сигнал:\n"
             f"Монета: {coin['id']}\n"
             f"Цена: {price} $\n"
             f"Рост за 24ч: {coin['change_24h']}%\n"
-            f"{emoji} Вероятность роста: {probability}%\n"
+            f"{color} Вероятность роста: {prob}%\n"
             f"🎯 Цель: {target_price} $ (+5%)\n"
             f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
         )
