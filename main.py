@@ -44,29 +44,29 @@ async def activate_bot(message: types.Message):
 @dp.message_handler(Text(equals="🚀 Получить ещё сигнал"))
 async def send_signals(message: types.Message):
     coins = get_top_coins()
-    print("COINS:", coins)  # лог в терминал
+    print("COINS:", coins)
 
     if not coins:
-        await message.answer("Не удалось получить сигналы. Попробуйте позже.")
+        await message.answer("Не удалось получить сигналы\\. Попробуйте позже\\.")
         return
 
     for coin in coins:
         try:
-            name = coin['id']
-            price = coin['price']
+            name = coin['id'].replace("-", "\\-")
+            price = str(coin['price']).replace(".", "\\.")
             change = coin['change_24h']
             probability = coin['probability']
-            target_price = coin['target_price']
-            stop_loss_price = coin['stop_loss_price']
+            target_price = str(coin['target_price']).replace(".", "\\.")
+            stop_loss_price = str(coin['stop_loss_price']).replace(".", "\\.")
 
             text = (
                 f"💰 *Сигнал:*\n"
                 f"Монета: {name}\n"
-                f"Цена: *{price} $*\n"
+                f"Цена: *{price} \\$*\n"
                 f"Рост за 24ч: {change}%\n"
                 f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: {probability}%\n"
-                f"🎯 Цель: *{target_price} $* \\(+5%\\)\n"
-                f"⛔️ Стоп-лосс: {stop_loss_price} $ \\(-3\\.5%\\)"
+                f"🎯 Цель: *{target_price} \\$* \\(+5%\\)\n"
+                f"⛔️ Стоп-лосс: {stop_loss_price} \\$ \\(-3\\.5%\\)"
             )
 
             await message.answer(text)
