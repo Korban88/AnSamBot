@@ -3,7 +3,7 @@ from ton_tokens import get_ton_wallet_tokens
 
 cg = CoinGeckoAPI()
 
-def get_top_ton_wallet_coins():
+def get_top_ton_wallet_coins(top_n=1, randomize=False):
     coin_ids = get_ton_wallet_tokens()
 
     if not coin_ids:
@@ -17,8 +17,7 @@ def get_top_ton_wallet_coins():
         price_change_percentage='24h,7d'
     )
 
-    best_coin = None
-    best_score = -999
+    scored_coins = []
 
     for coin in coins:
         price = coin.get('current_price')
@@ -27,7 +26,6 @@ def get_top_ton_wallet_coins():
         change_7d = coin.get('price_change_percentage_7d_in_currency')
         name = coin['id']
 
-        # защита от пустых значений
         if price is None or volume is None or change_24h is None:
             continue
 
@@ -45,15 +43,23 @@ def get_top_ton_wallet_coins():
         if change_24h < -1:
             score -= 2
 
-        if score > best_score:
-            best_score = score
-            best_coin = {
-                'id': name,
-                'price': round(price, 4),
-                'change_24h': round(change_24h, 2),
-                'change_7d': round(change_7d, 2) if change_7d is not None else 0,
-                'volume': int(volume),
-                'score': score
-            }
+        scored_coins.append({
+            'id': name,
+            'price': round(price, 4),
+            'change_24h': round(change_24h, 2),
+            'change_7d': round(change_7d, 2) if change_7d is not None else 0,
+            'volume': int(volume),
+            'score': score
+        })
 
-    return best_coin
+    if not scored_coins:
+        return None
+
+    # Сортировка по score
+    sorted_coins = sorted(scored_coins, key=lambda x: x['score'], reverse=True)
+
+    if randomize:
+        import random
+        return [random.choice(sorted_coins[:top_n])]
+
+    return sorted_coins[:top_n]
