@@ -1,48 +1,58 @@
-import asyncio
-from datetime import datetime, timedelta
+import time
+from threading import Thread
+from pycoingecko import CoinGeckoAPI
+from aiogram.utils.markdown import hbold
 
-tracking_tasks = {}
+cg = CoinGeckoAPI()
 
-async def start_tracking(bot, user_id, coin_id, start_price):
-    async def track():
-        start_time = datetime.now()
-        initial_price = start_price
+class CoinTracker:
+    def __init__(self, bot, user_id):
+        self.bot = bot
+        self.user_id = user_id
+        self.tracked_coins = {}
+        self.running = False
 
-        while True:
-            await asyncio.sleep(600)  # 10 минут
-            
-            # Симуляция получения новой цены (замени на реальный API)
-            new_price = await get_price(coin_id)
-            if not new_price:
-                continue
+    def start_tracking(self, coin_id, start_price):
+        self.tracked_coins[coin_id] = {
+            "start_price": start_price,
+            "start_time": time.time()
+        }
 
-            price_change = ((new_price - initial_price) / initial_price) * 100
-            
-            # Уведомление о росте на 3.5%
-            if price_change >= 3.5:
-                await bot.send_message(user_id, f"🚀 {coin_id} выросла на +{round(price_change, 2)}%! Текущая цена: {new_price} $")
-                break
+    def stop_all_tracking(self):
+        self.tracked_coins = {}
 
-            # По истечении 12 часов — финальный отчёт
-            if datetime.now() - start_time >= timedelta(hours=12):
-                result = "выросла" if price_change > 0 else "упала" if price_change < 0 else "не изменилась"
-                await bot.send_message(
-                    user_id,
-                    f"⏱ За 12 часов монета {coin_id} {result}.\nИзменение: {round(price_change, 2)}% (с {initial_price} $ до {new_price} $)"
-                )
-                break
+    def get_price(self, coin_id):
+        data = cg.get_price(ids=coin_id, vs_currencies='usd')
+        return data.get(coin_id, {}).get('usd')
 
-    task = asyncio.create_task(track())
-    tracking_tasks.setdefault(user_id, []).append(task)
+    def track_loop(self):
+        self.running = True
+        while self.running:
+            to_remove = []
+            for coin_id, data in self.tracked_coins.items():
+                current_price = self.get_price(coin_id)
+                if current_price is None:
+                    continue
 
+                start_price = data["start_price"]
+                change_percent = ((current_price - start_price) / start_price) * 100
+                elapsed = time.time() - data["start_time"]
 
-async def get_price(coin_id):
-    # Тут должен быть реальный запрос к API. Сейчас — фейковый возврат для теста
-    import random
-    return round(random.uniform(0.95, 1.05), 4)
+                if change_percent >= 5:
+                    msg = f"🚀 Монета {coin_id.upper()} выросла на +5%!\nЦена: {hbold(round(current_price, 4))} $"
+                    self.bot.loop.create_task(self.bot.send_message(self.user_id, msg))
+                    to_remove.append(coin_id)
 
-def stop_all_trackings(user_id):
-    tasks = tracking_tasks.get(user_id, [])
-    for task in tasks:
-        task.cancel()
-    tracking_tasks[user_id] = []
+                elif elapsed >= 12 * 3600:
+                    msg = f"⏰ Монета {coin_id.upper()} не показала роста за 12 часов.\nТекущая цена: {hbold(round(current_price, 4))} $\nИзменение: {round(change_percent, 2)}%"
+                    self.bot.loop.create_task(self.bot.send_message(self.user_id, msg))
+                    to_remove.append(coin_id)
+
+            for coin_id in to_remove:
+                del self.tracked_coins[coin_id]
+
+            time.sleep(600)  # каждые 10 минут
+
+    def run(self):
+        t = Thread(target=self.track_loop)
+        t.start()
