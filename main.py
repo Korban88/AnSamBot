@@ -24,15 +24,6 @@ keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
 keyboard.add(KeyboardButton("👁 Следить за монетой"))
 keyboard.add(KeyboardButton("🔴 Остановить все отслеживания"))
 
-def esc(text):
-    if not isinstance(text, str):
-        text = str(text)
-    # Экранирование для MarkdownV2
-    escape_chars = r'\_*[]()~`>#+-=|{}.!'
-    for ch in escape_chars:
-        text = text.replace(ch, '\\' + ch)
-    return text
-
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
     await message.answer("Добро пожаловать в новую жизнь, Корбан!", reply_markup=keyboard)
@@ -46,44 +37,8 @@ async def send_signals(message: types.Message):
     logging.info("Нажата кнопка 'Получить ещё сигнал'")
     await message.answer("⚙️ Обработка сигнала...")
 
-    try:
-        coins = get_top_coins()
-        logging.info(f"COINS: {coins}")
-        await message.answer(f"Найдено монет: {len(coins)}")
-
-        if not coins:
-            await message.answer("Не удалось получить сигналы\\. Попробуйте позже\\.")
-            logging.warning("Список монет пуст, сигнал не отправлен.")
-            return
-
-        for coin in coins:
-            try:
-                name = esc(coin['id'])
-                price = esc(coin['price'])
-                change = esc(coin['change_24h'])
-                probability = esc(coin['probability'])
-                target_price = esc(coin['target_price'])
-                stop_loss_price = esc(coin['stop_loss_price'])
-
-                text = (
-                    f"*💰 Сигнал:*\n"
-                    f"Монета: *{name}*\n"
-                    f"Цена: *{price} \\$*\n"
-                    f"Рост за 24ч: *{change}\\%*\n"
-                    f"{'🟢' if float(probability) >= 70 else '🔴'} Вероятность роста: *{probability}\\%*\n"
-                    f"🎯 Цель: *{target_price} \\$* \\(\\+5\\%\\)\n"
-                    f"⛔️ Стоп\\-лосс: *{stop_loss_price} \\$* \\(\\-3\\.5\\%\\)"
-                )
-
-                await message.answer(text)
-
-            except Exception as e:
-                safe_err = esc(str(e))
-                await message.answer(f"⚠️ Ошибка: {safe_err}")
-
-    except Exception as e:
-        logging.error(f"Ошибка в get_top_coins: {e}")
-        await message.answer(f"Произошла ошибка при получении сигналов: {esc(str(e))}")
+    # Тестовое сообщение без вызова get_top_coins()
+    await message.answer("Тестовое сообщение — обработчик работает.")
 
 @dp.message_handler(Text(equals="👁 Следить за монетой"))
 async def track_coin(message: types.Message):
@@ -102,11 +57,11 @@ async def track_coin(message: types.Message):
         tracker.run()
 
         await message.answer(
-            f"👁 Запущено отслеживание *{esc(coin_id)}*\nТекущая цена: *{esc(entry_price)} \\$*"
+            f"👁 Запущено отслеживание *{coin_id}*\nТекущая цена: *{entry_price} \\$*"
         )
 
     except Exception as e:
-        safe_error = esc(str(e))
+        safe_error = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)")
         await message.answer(f"❌ Ошибка запуска отслеживания: {safe_error}")
 
 @dp.message_handler(Text(equals="🔴 Остановить все отслеживания"))
