@@ -10,22 +10,24 @@ from tracking import CoinTracker
 from scheduler import schedule_daily_signal
 from pycoingecko import CoinGeckoAPI
 
-# Токен и настройки
 BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 USER_ID = 347552741
 
 logging.basicConfig(level=logging.INFO)
+
 bot = Bot(token=BOT_TOKEN, parse_mode="MarkdownV2")
 dp = Dispatcher(bot)
 
-tracker = None  # Глобальный трекер
+tracker = None
 
-# Клавиатура
 keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
 keyboard.add(KeyboardButton("🟢 Старт"))
 keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
 keyboard.add(KeyboardButton("👁 Следить за монетой"))
 keyboard.add(KeyboardButton("🔴 Остановить все отслеживания"))
+
+def esc(text):
+    return str(text).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("+", "\\+").replace("%", "\\%").replace("$", "\\$").replace("_", "\\_")
 
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
@@ -37,12 +39,16 @@ async def activate_bot(message: types.Message):
 
 @dp.message_handler(Text(equals="🚀 Получить ещё сигнал"))
 async def send_signals(message: types.Message):
+    await message.answer("⚙️ Обработка сигнала...")
+
     coins = get_top_coins()
-    print("COINS:", coins)
+    logging.info(f"COINS: {coins}")
 
     if not coins:
         await message.answer("Не удалось получить сигналы\\. Попробуйте позже\\.")
         return
+
+    await message.answer(f"Найдено монет: {len(coins)}")
 
     for coin in coins:
         try:
@@ -53,24 +59,21 @@ async def send_signals(message: types.Message):
             target_price = coin['target_price']
             stop_loss_price = coin['stop_loss_price']
 
-            def escape(text):
-                return str(text).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("+", "\\+").replace("%", "\\%").replace("$", "\\$")
-
             text = (
                 f"*💰 Сигнал:*\n"
-                f"Монета: *{escape(name)}*\n"
-                f"Цена: *{escape(price)} \\$*\n"
-                f"Рост за 24ч: *{escape(change)}\\%*\n"
-                f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: *{escape(probability)}\\%*\n"
-                f"🎯 Цель: *{escape(target_price)} \\$* \\(\\+5\\%\\)\n"
-                f"⛔️ Стоп\\-лосс: *{escape(stop_loss_price)} \\$* \\(\\-3\\.5\\%\\)"
+                f"Монета: *{esc(name)}*\n"
+                f"Цена: *{esc(price)} \\$*\n"
+                f"Рост за 24ч: *{esc(change)}\\%*\n"
+                f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: *{esc(probability)}\\%*\n"
+                f"🎯 Цель: *{esc(target_price)} \\$* \\(\\+5\\%\\)\n"
+                f"⛔️ Стоп\\-лосс: *{esc(stop_loss_price)} \\$* \\(\\-3\\.5\\%\\)"
             )
 
             await message.answer(text)
 
         except Exception as e:
-            safe_error = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("_", "\\_")
-            await message.answer(f"⚠️ Ошибка: {safe_error}")
+            safe_err = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("_", "\\_")
+            await message.answer(f"⚠️ Ошибка: {safe_err}")
 
 @dp.message_handler(Text(equals="👁 Следить за монетой"))
 async def track_coin(message: types.Message):
