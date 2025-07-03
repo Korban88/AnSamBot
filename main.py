@@ -103,7 +103,10 @@ async def stop_tracking(message: types.Message):
     else:
         await message.answer("Нечего останавливать.")
 
+# on_startup для запуска фоновой задачи
+async def on_startup(dispatcher):
+    schedule_daily_signal(dispatcher, bot, get_top_coins, user_id=USER_ID)
+
 # Запуск
 if __name__ == '__main__':
-    schedule_daily_signal(dp, bot, get_top_coins, user_id=USER_ID)
-    executor.start_polling(dp, skip_updates=True)
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
