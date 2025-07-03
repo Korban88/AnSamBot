@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
@@ -8,7 +7,6 @@ from aiogram.dispatcher.filters import Text
 from crypto_utils import get_top_coins
 from tracking import CoinTracker
 from scheduler import schedule_daily_signal
-from pycoingecko import CoinGeckoAPI
 
 BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 USER_ID = 347552741
@@ -39,6 +37,7 @@ async def activate_bot(message: types.Message):
 
 @dp.message_handler(Text(equals="🚀 Получить ещё сигнал"))
 async def send_signals(message: types.Message):
+    logging.info("Нажата кнопка 'Получить ещё сигнал'")
     await message.answer("⚙️ Обработка сигнала...")
 
     coins = get_top_coins()
@@ -81,6 +80,7 @@ async def track_coin(message: types.Message):
     user_id = message.from_user.id
     coin_id = "toncoin"
 
+    from pycoingecko import CoinGeckoAPI
     cg = CoinGeckoAPI()
     try:
         price_data = cg.get_price(ids=coin_id, vs_currencies='usd')
@@ -109,6 +109,7 @@ async def stop_tracking(message: types.Message):
 
 async def on_startup(dispatcher):
     schedule_daily_signal(dispatcher, bot, get_top_coins, user_id=USER_ID)
+    logging.info("Бот запущен и готов")
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
