@@ -1,58 +1,71 @@
+import asyncio
 import time
-from threading import Thread
-from pycoingecko import CoinGeckoAPI
-from aiogram.utils.markdown import hbold
-
-cg = CoinGeckoAPI()
 
 class CoinTracker:
     def __init__(self, bot, user_id):
         self.bot = bot
         self.user_id = user_id
-        self.tracked_coins = {}
+        self.tracked = {}
         self.running = False
 
-    def start_tracking(self, coin_id, start_price):
-        self.tracked_coins[coin_id] = {
-            "start_price": start_price,
-            "start_time": time.time()
+    def start_tracking(self, coin_id, entry_price):
+        self.tracked[coin_id] = {
+            "entry": entry_price,
+            "start": time.time(),
+            "notified_3_5": False,
+            "notified_5": False,
         }
 
     def stop_all_tracking(self):
-        self.tracked_coins = {}
-
-    def get_price(self, coin_id):
-        data = cg.get_price(ids=coin_id, vs_currencies='usd')
-        return data.get(coin_id, {}).get('usd')
-
-    def track_loop(self):
-        self.running = True
-        while self.running:
-            to_remove = []
-            for coin_id, data in self.tracked_coins.items():
-                current_price = self.get_price(coin_id)
-                if current_price is None:
-                    continue
-
-                start_price = data["start_price"]
-                change_percent = ((current_price - start_price) / start_price) * 100
-                elapsed = time.time() - data["start_time"]
-
-                if change_percent >= 5:
-                    msg = f"🚀 Монета {coin_id.upper()} выросла на +5%!\nЦена: {hbold(round(current_price, 4))} $"
-                    self.bot.loop.create_task(self.bot.send_message(self.user_id, msg))
-                    to_remove.append(coin_id)
-
-                elif elapsed >= 12 * 3600:
-                    msg = f"⏰ Монета {coin_id.upper()} не показала роста за 12 часов.\nТекущая цена: {hbold(round(current_price, 4))} $\nИзменение: {round(change_percent, 2)}%"
-                    self.bot.loop.create_task(self.bot.send_message(self.user_id, msg))
-                    to_remove.append(coin_id)
-
-            for coin_id in to_remove:
-                del self.tracked_coins[coin_id]
-
-            time.sleep(600)  # каждые 10 минут
+        self.tracked.clear()
 
     def run(self):
-        t = Thread(target=self.track_loop)
-        t.start()
+        self.running = True
+        asyncio.create_task(self._loop())
+
+    async def _loop(self):
+        while True:
+            if not self.tracked:
+                await asyncio.sleep(10)
+                continue
+
+            for coin_id in list(self.tracked.keys()):
+                try:
+                    price = await self.get_price(coin_id)
+                    data = self.tracked[coin_id]
+                    entry = data["entry"]
+                    now = time.time()
+                    change_percent = (price - entry) / entry * 100
+
+                    if not data["notified_3_5"] and change_percent >= 3.5:
+                        await self.bot.send_message(
+                            self.user_id,
+                            f"📈 Монета <b>{coin_id}</b> выросла на <b>+3.5%</b>!\nТекущая цена: <b>{price}$</b>"
+                        )
+                        data["notified_3_5"] = True
+
+                    if not data["notified_5"] and change_percent >= 5:
+                        await self.bot.send_message(
+                            self.user_id,
+                            f"🚀 Монета <b>{coin_id}</b> достигла цели <b>+5%</b>!\nЦена: <b>{price}$</b>"
+                        )
+                        data["notified_5"] = True
+
+                    if now - data["start"] >= 43200:  # 12 часов
+                        if not data["notified_5"]:
+                            diff = round(change_percent, 2)
+                            await self.bot.send_message(
+                                self.user_id,
+                                f"🕛 12 часов отслеживания {coin_id} завершены.\nИзменение за период: {diff}%.\nЦена: {price}$"
+                            )
+                        self.tracked.pop(coin_id)
+
+                except Exception as e:
+                    print(f"Ошибка при отслеживании {coin_id}: {e}")
+            await asyncio.sleep(60)
+
+    async def get_price(self, coin_id):
+        from pycoingecko import CoinGeckoAPI
+        cg = CoinGeckoAPI()
+        data = cg.get_price(ids=coin_id, vs_currencies='usd')
+        return float(data[coin_id]["usd"])
