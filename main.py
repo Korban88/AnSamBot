@@ -53,24 +53,38 @@ async def send_signals(message: types.Message):
             return
 
         for coin in coins:
+            text_md = (
+                f"*💰 Сигнал:*\n"
+                f"Монета: *{esc_md(str(coin['id']))}*\n"
+                f"Цена: *{esc_md(str(coin['price']))} \\$*\n"
+                f"Рост за 24ч: *{esc_md(str(coin['change_24h']))}\\%*\n"
+                f"{'🟢' if float(coin['probability']) >= 70 else '🔴'} Вероятность роста: *{esc_md(str(coin['probability']))}\\%*\n"
+                f"🎯 Цель: *{esc_md(str(coin['target_price']))} \\$* \\(\\+5\\%\\)\n"
+                f"⛔️ Стоп\\-лосс: *{esc_md(str(coin['stop_loss_price']))} \\$* \\(\\-3\\.5\\%\\)"
+            )
+            text_plain = (
+                f"Сигнал:\n"
+                f"Монета: {coin['id']}\n"
+                f"Цена: {coin['price']} $\n"
+                f"Рост за 24ч: {coin['change_24h']}%\n"
+                f"Вероятность роста: {coin['probability']}%\n"
+                f"Цель: {coin['target_price']} $\n"
+                f"Стоп-лосс: {coin['stop_loss_price']} $"
+            )
             try:
-                text = (
-                    f"*💰 Сигнал:*\n"
-                    f"Монета: *{esc_md(str(coin['id']))}*\n"
-                    f"Цена: *{esc_md(str(coin['price']))} \\$*\n"
-                    f"Рост за 24ч: *{esc_md(str(coin['change_24h']))}\\%*\n"
-                    f"{'🟢' if float(coin['probability']) >= 70 else '🔴'} Вероятность роста: *{esc_md(str(coin['probability']))}\\%*\n"
-                    f"🎯 Цель: *{esc_md(str(coin['target_price']))} \\$* \\(\\+5\\%\\)\n"
-                    f"⛔️ Стоп\\-лосс: *{esc_md(str(coin['stop_loss_price']))} \\$* \\(\\-3\\.5\\%\\)"
-                )
-                await message.answer(text)
-                logging.info(f"Отправлен сигнал по монете: {coin['id']}")
+                await message.answer(text_md, parse_mode="MarkdownV2")
+                logging.info(f"Отправлен сигнал по монете: {coin['id']} с MarkdownV2")
             except Exception as e:
-                logging.error(f"Ошибка при отправке сообщения по монете {coin['id']}: {e}")
-                await message.answer(f"⚠️ Ошибка: {esc_md(str(e))}")
+                logging.error(f"Ошибка MarkdownV2 при отправке {coin['id']}: {e}. Отправляю без форматирования.")
+                try:
+                    await message.answer(text_plain, parse_mode=None)
+                except Exception as ex:
+                    logging.error(f"Ошибка при отправке без форматирования {coin['id']}: {ex}")
+                    await message.answer(f"⚠️ Ошибка при отправке сигнала по монете {coin['id']}")
+
     except Exception as e:
         logging.error(f"Ошибка в get_top_coins: {e}")
-        await message.answer(f"Произошла ошибка при получении сигналов: {esc_md(str(e))}")
+        await message.answer(f"Произошла ошибка при получении сигналов: {e}")
 
 @dp.message_handler(Text(equals="👁 Следить за монетой"))
 async def track_coin(message: types.Message):
