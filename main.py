@@ -13,6 +13,7 @@ USER_ID = 347552741
 
 logging.basicConfig(level=logging.INFO)
 
+# Отключаем Markdown
 bot = Bot(token=BOT_TOKEN, parse_mode=None)
 dp = Dispatcher(bot)
 
@@ -28,14 +29,6 @@ keyboard.add(KeyboardButton("🔴 Остановить все отслежива
 async def cmd_start(message: types.Message):
     await message.answer("Добро пожаловать в новую жизнь, Корбан!", reply_markup=keyboard)
 
-@dp.message_handler(commands=['testsend'])
-async def cmd_testsend(message: types.Message):
-    try:
-        await bot.send_message(USER_ID, "✅ Тестовое сообщение от бота успешно отправлено!")
-        await message.answer("Тестовое сообщение отправлено. Проверь личные сообщения.")
-    except Exception as e:
-        await message.answer(f"Ошибка при отправке тестового сообщения: {e}")
-
 @dp.message_handler(Text(equals="🟢 Старт"))
 async def activate_bot(message: types.Message):
     await message.answer("Бот активирован. Ждите сигналы каждый день в 8:00 МСК.")
@@ -48,7 +41,6 @@ async def send_signals(message: types.Message):
     try:
         coins = get_top_coins()
         logging.info(f"COINS: {coins}")
-        await message.answer(f"Найдено монет: {len(coins)}")
 
         if not coins:
             await message.answer("Не удалось получить сигналы. Попробуйте позже.")
@@ -57,29 +49,20 @@ async def send_signals(message: types.Message):
 
         for coin in coins:
             try:
-                name = coin['id']
-                price = coin['price']
-                change = coin['change_24h']
-                probability = coin['probability']
-                target_price = coin['target_price']
-                stop_loss_price = coin['stop_loss_price']
-
                 text = (
                     f"Сигнал:\n"
-                    f"Монета: {name}\n"
-                    f"Цена: {price} $\n"
-                    f"Рост за 24ч: {change}%\n"
-                    f"Вероятность роста: {probability}%\n"
-                    f"Цель: {target_price} $\n"
-                    f"Стоп-лосс: {stop_loss_price} $"
+                    f"Монета: {coin['id']}\n"
+                    f"Цена: {coin['price']} $\n"
+                    f"Рост за 24ч: {coin['change_24h']}%\n"
+                    f"Вероятность роста: {coin['probability']}%\n"
+                    f"Цель: {coin['target_price']} $\n"
+                    f"Стоп-лосс: {coin['stop_loss_price']} $"
                 )
-
                 await message.answer(text)
-
+                logging.info(f"Отправлен сигнал по монете: {coin['id']}")
             except Exception as e:
-                logging.error(f"Ошибка при формировании сообщения: {e}")
+                logging.error(f"Ошибка при отправке сообщения по монете {coin['id']}: {e}")
                 await message.answer(f"⚠️ Ошибка: {e}")
-
     except Exception as e:
         logging.error(f"Ошибка в get_top_coins: {e}")
         await message.answer(f"Произошла ошибка при получении сигналов: {e}")
