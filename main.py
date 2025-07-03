@@ -38,7 +38,7 @@ async def cmd_start(message: types.Message):
 # Старт
 @dp.message_handler(Text(equals="🟢 Старт"))
 async def activate_bot(message: types.Message):
-    await message.answer("Бот активирован. Ждите сигналы каждый день в 8:00 МСК.")
+    await message.answer("Бот активирован\\. Ждите сигналы каждый день в 8\\:00 МСК\\.")
 
 # Получить ещё сигнал
 @dp.message_handler(Text(equals="🚀 Получить ещё сигнал"))
