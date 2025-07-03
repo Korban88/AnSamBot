@@ -42,38 +42,49 @@ async def start_again(message: types.Message):
     )
 
 # === Кнопка 'Получить ещё сигнал' ===
+user_signal_indices = {}
+
 @dp.message_handler(lambda message: message.text == "🚀 Получить ещё сигнал")
 async def handle_get_signal(message: types.Message):
     try:
-        coins = get_top_ton_wallet_coins(top_n=3)
+        user_id = message.from_user.id
+        coins = get_top_ton_wallet_coins()
+
         if not coins:
             await message.answer("Не удалось найти подходящие монеты.")
             return
 
-        for coin in coins:
-            price = coin['price']
-            target_price = round(price * 1.05, 4)
-            stop_loss_price = round(price * 0.965, 4)
+        index = user_signal_indices.get(user_id, 0)
+        if index >= len(coins):
+            index = 0  # начать заново
 
-            # цвет вероятности
-            prob = coin['probability']
-            if prob >= 80:
-                color = "🟢"
-            elif prob >= 50:
-                color = "🟡"
-            else:
-                color = "🔴"
+        coin = coins[index]
+        user_signal_indices[user_id] = index + 1
 
-            text = (
-                f"💰 Сигнал:\n"
-                f"Монета: {coin['id']}\n"
-                f"Цена: {price} $\n"
-                f"Рост за 24ч: {coin['change_24h']}%\n"
-                f"{color} Вероятность роста: {prob}%\n"
-                f"🎯 Цель: {target_price} $ (+5%)\n"
-                f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
-            )
-            await message.answer(text)
+        price = coin['price']
+        target_price = round(price * 1.05, 4)
+        stop_loss_price = round(price * 0.965, 4)
+
+        # Цвет для вероятности
+        prob = coin['probability']
+        if prob >= 80:
+            emoji = "🟢"
+        elif prob >= 60:
+            emoji = "🟡"
+        else:
+            emoji = "🔴"
+
+        text = (
+            f"💰 Сигнал:\n"
+            f"Монета: {coin['id']}\n"
+            f"Цена: {price} $\n"
+            f"Рост за 24ч: {coin['change_24h']}%\n"
+            f"{emoji} Вероятность роста: {prob}%\n"
+            f"🎯 Цель: {target_price} $ (+5%)\n"
+            f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
+        )
+        await message.answer(text)
+
     except Exception as e:
         await message.answer(f"⚠️ Ошибка при получении сигнала: {str(e)}")
 
@@ -97,26 +108,27 @@ async def handle_stop_tracking(message: types.Message):
 
 # === Ежедневный сигнал в 8:00 ===
 async def scheduled_signal():
-    coins = get_top_ton_wallet_coins(top_n=1)
-    if coins:
-        coin = coins[0]
-        price = coin['price']
-        target_price = round(price * 1.05, 4)
-        stop_loss_price = round(price * 0.965, 4)
+    coins = get_top_ton_wallet_coins()
+    if not coins:
+        return
+    coin = coins[0]
+    price = coin['price']
+    target_price = round(price * 1.05, 4)
+    stop_loss_price = round(price * 0.965, 4)
 
-        prob = coin['probability']
-        color = "🟢" if prob >= 80 else "🟡" if prob >= 50 else "🔴"
+    prob = coin['probability']
+    emoji = "🟢" if prob >= 80 else "🟡" if prob >= 60 else "🔴"
 
-        text = (
-            f"💰 Сигнал:\n"
-            f"Монета: {coin['id']}\n"
-            f"Цена: {price} $\n"
-            f"Рост за 24ч: {coin['change_24h']}%\n"
-            f"{color} Вероятность роста: {prob}%\n"
-            f"🎯 Цель: {target_price} $ (+5%)\n"
-            f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
-        )
-        await bot.send_message(ADMIN_ID, text)
+    text = (
+        f"💰 Сигнал:\n"
+        f"Монета: {coin['id']}\n"
+        f"Цена: {price} $\n"
+        f"Рост за 24ч: {coin['change_24h']}%\n"
+        f"{emoji} Вероятность роста: {prob}%\n"
+        f"🎯 Цель: {target_price} $ (+5%)\n"
+        f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
+    )
+    await bot.send_message(ADMIN_ID, text)
 
 # === Планировщик ===
 scheduler.add_job(scheduled_signal, "cron", hour=8, minute=0)
