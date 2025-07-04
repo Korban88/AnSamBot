@@ -1,8 +1,10 @@
 import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils import executor
 from aiogram.dispatcher.filters import Text
+from aiogram.dispatcher import filters
+from aiogram.types import CallbackQuery
 
 from crypto_utils import get_top_coins
 from tracking import CoinTracker
@@ -12,21 +14,18 @@ BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 USER_ID = 347552741
 
 logging.basicConfig(level=logging.INFO)
-bot = Bot(token=BOT_TOKEN)
+
+bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
 dp = Dispatcher(bot)
 
 tracker = None
 signal_index = 0
 cached_signals = []
 
-# Кнопки
 keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
 keyboard.add(KeyboardButton("🟢 Старт"))
 keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
-keyboard.add(KeyboardButton("👁 Следить за монетой"))
 keyboard.add(KeyboardButton("🔴 Остановить все отслеживания"))
-
-# Обработка команд
 
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
@@ -66,55 +65,44 @@ async def send_signals(message: types.Message):
         stop_loss_price = coin['stop_loss_price']
         risky = coin.get('risky', False)
 
-        risk_note = "\n⚠️ Монета имеет повышенный риск!" if risky else ""
+        risk_note = "\n⚠️ <b>Монета имеет повышенный риск!</b>" if risky else ""
 
         text = (
-            f"💰 Сигнал:\n"
-            f"Монета: {name}\n"
-            f"Цена: {price} $\n"
-            f"Рост за 24ч: {change}%\n"
-            f"Вероятность роста: {probability}%\n"
-            f"🎯 Цель: {target_price} $ (+5%)\n"
-            f"⛔️ Стоп-лосс: {stop_loss_price} $ (-3.5%)"
+            f"<b>💰 Сигнал:</b>\n"
+            f"Монета: <b>{name}</b>\n"
+            f"Цена: <b>{price} $</b>\n"
+            f"Рост за 24ч: <b>{change}%</b>\n"
+            f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: <b>{probability}%</b>\n"
+            f"🎯 Цель: <b>{target_price} $</b> (+5%)\n"
+            f"⛔️ Стоп-лосс: <b>{stop_loss_price} $</b> (-3.5%)"
             f"{risk_note}"
         )
 
-        await message.answer(text)
+        # 🔘 Инлайн-кнопка
+        inline_kb = InlineKeyboardMarkup()
+        inline_kb.add(InlineKeyboardButton("👁 Следить за монетой", callback_data=f"track:{name}:{price}"))
+
+        await message.answer(text, reply_markup=inline_kb)
 
     except Exception as e:
         logging.error(f"Ошибка при отправке сигнала: {e}")
-        await message.answer(f"⚠️ Ошибка: {e}")
+        await message.answer(f"⚠️ Ошибка: {str(e)}")
 
-@dp.message_handler(Text(equals="👁 Следить за монетой"))
-async def track_coin(message: types.Message):
+@dp.callback_query_handler(lambda c: c.data.startswith("track:"))
+async def process_tracking_callback(callback_query: CallbackQuery):
     global tracker
-    user_id = message.from_user.id
+    _, coin_id, entry_price = callback_query.data.split(":")
+    entry_price = float(entry_price)
 
-    if not cached_signals or signal_index == 0:
-        await message.answer("Сначала получите сигнал, чтобы выбрать монету для отслеживания.")
-        return
+    tracker = CoinTracker(bot, callback_query.from_user.id)
+    tracker.start_tracking(coin_id, entry_price)
+    tracker.run()
 
-    # Отслеживать последнюю монету из сигналов
-    coin = cached_signals[signal_index - 1]
-    coin_id = coin['id']
-
-    from pycoingecko import CoinGeckoAPI
-    cg = CoinGeckoAPI()
-
-    try:
-        price_data = cg.get_price(ids=coin_id, vs_currencies='usd')
-        entry_price = float(price_data[coin_id]["usd"])
-
-        tracker = CoinTracker(bot, user_id)
-        tracker.start_tracking(coin_id, entry_price)
-        tracker.run()
-
-        await message.answer(
-            f"👁 Запущено отслеживание {coin_id}\nТекущая цена: {entry_price} $"
-        )
-
-    except Exception as e:
-        await message.answer(f"❌ Ошибка запуска отслеживания: {e}")
+    await callback_query.answer()
+    await bot.send_message(
+        callback_query.from_user.id,
+        f"👁 Запущено отслеживание <b>{coin_id}</b>\nТекущая цена: <b>{entry_price} $</b>"
+    )
 
 @dp.message_handler(Text(equals="🔴 Остановить все отслеживания"))
 async def stop_tracking(message: types.Message):
