@@ -1,8 +1,7 @@
-import time
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from crypto_utils import get_price_by_symbol
+from crypto_utils import get_price
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -10,48 +9,49 @@ class CoinTracker:
     def __init__(self, bot, user_id):
         self.bot = bot
         self.user_id = user_id
-        self.tracked = {}  # symbol: {start_time, start_price, notified_3_5, notified_5}
+        self.tracked = {}
 
-    async def track_coin(self, symbol):
-        price = get_price_by_symbol(symbol)
-        if price is None:
-            await self.bot.send_message(self.user_id, f"❌ Не удалось получить цену {symbol}")
-            return
-
+    async def add(self, symbol):
         self.tracked[symbol] = {
-            "start_price": price,
             "start_time": datetime.utcnow(),
-            "notified_3_5": False,
-            "notified_5": False
+            "start_price": await get_price(symbol)
         }
-        await self.bot.send_message(self.user_id, f"👁 Начал отслеживать {symbol} по цене {price} USD")
 
-    async def check_prices(self):
+    async def clear(self):
+        self.tracked = {}
+
+    async def run(self):
         to_remove = []
-
         for symbol, data in self.tracked.items():
-            current_price = get_price_by_symbol(symbol)
-            if current_price is None:
+            current_price = await get_price(symbol)
+            if not current_price:
                 continue
 
-            change = ((current_price - data["start_price"]) / data["start_price"]) * 100
-            now = datetime.utcnow()
-            elapsed = now - data["start_time"]
+            start_price = data["start_price"]
+            percent_change = ((current_price - start_price) / start_price) * 100
+            time_passed = (datetime.utcnow() - data["start_time"]).total_seconds() / 3600
 
-            if change >= 5 and not data["notified_5"]:
-                await self.bot.send_message(self.user_id, f"🚀 {symbol} вырос на +5%! Текущая цена: {current_price} USD")
-                data["notified_5"] = True
-                to_remove.append(symbol)
-
-            elif change >= 3.5 and not data["notified_3_5"]:
-                await self.bot.send_message(self.user_id, f"📈 {symbol} вырос на +3.5%! Текущая цена: {current_price} USD")
-                data["notified_3_5"] = True
-
-            elif elapsed >= timedelta(hours=12):
-                direction = "выросла" if change > 0 else "упала"
+            if percent_change >= 5:
                 await self.bot.send_message(
                     self.user_id,
-                    f"⏱ 12 часов наблюдения за {symbol}. Она {direction} на {round(change, 2)}%. Текущая цена: {current_price} USD"
+                    f"🚀 *{symbol.upper()} вырос на +{percent_change:.2f}%!* Цель достигнута.",
+                    parse_mode="Markdown"
+                )
+                to_remove.append(symbol)
+
+            elif percent_change >= 3.5:
+                await self.bot.send_message(
+                    self.user_id,
+                    f"📈 *{symbol.upper()} приближается к цели* (+{percent_change:.2f}%)",
+                    parse_mode="Markdown"
+                )
+
+            elif time_passed >= 12:
+                await self.bot.send_message(
+                    self.user_id,
+                    f"⏳ С момента отслеживания {symbol.upper()} прошло 12 часов. "
+                    f"Изменение: {percent_change:.2f}%",
+                    parse_mode="Markdown"
                 )
                 to_remove.append(symbol)
 
