@@ -1,106 +1,115 @@
 import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils import executor
-from apscheduler.schedulers.background import BackgroundScheduler
-from signal_generator import generate_signal
-from tracker import CoinTracker
+from aiogram import Bot, Dispatcher, executor, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from datetime import datetime, timedelta
+import asyncio
+
 from config import BOT_TOKEN, USER_ID
-import datetime
+from signal_generator import generate_signal
+from coin_tracker import CoinTracker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 bot = Bot(token=BOT_TOKEN, parse_mode="Markdown")
 dp = Dispatcher(bot)
+scheduler = AsyncIOScheduler()
 tracker = CoinTracker(bot, USER_ID)
 
-# Главное меню
-main_menu = ReplyKeyboardMarkup(resize_keyboard=True)
-main_menu.add(
-    KeyboardButton("📈 Получить ещё сигнал"),
+# Панель управления
+keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+keyboard.add(
+    KeyboardButton("🟢 Старт"),
+    KeyboardButton("🚀 Получить ещё сигнал")
+)
+keyboard.add(
     KeyboardButton("🛑 Остановить все отслеживания")
 )
 
-@dp.message_handler(commands=["start"])
-async def cmd_start(message: types.Message):
-    await message.answer("Добро пожаловать в новую жизнь, Корбан!\n\nБот готов выдавать тебе сильнейшие сигналы каждый день в 08:00 по Москве.", reply_markup=main_menu)
+# Обработка команды /start и кнопки Старт
+@dp.message_handler(lambda message: message.text == "🟢 Старт")
+async def start_handler(message: types.Message):
+    if message.from_user.id != USER_ID:
+        return
+    await message.answer("✅ Бот запущен. Жди сигнал каждый день в 08:00 по МСК.", reply_markup=keyboard)
 
-@dp.message_handler(lambda message: "Получить ещё сигнал" in message.text)
-async def handle_get_signal(message: types.Message):
-    logging.info(f"Получен запрос на сигнал от {message.from_user.id}")
+# Обработка кнопки "Получить ещё сигнал"
+@dp.message_handler(lambda message: message.text == "🚀 Получить ещё сигнал")
+async def handle_signal_request(message: types.Message):
+    if message.from_user.id != USER_ID:
+        return
     result = generate_signal()
-    if result is None:
+    if not result:
         await message.answer("⚠️ Сейчас нет подходящих монет. Но рынок живёт — запроси ещё чуть позже.")
         return
 
-    text = (
+    signal_text = (
         f"💡 *Сигнал на рост: {result['name']}*\n\n"
-        f"*Цена входа:* {result['entry_price']}\n"
-        f"*Цель +5%:* {result['target_price']}\n"
-        f"*Стоп-лосс:* {result['stop_loss']}\n"
-        f"*Вероятность роста:* {result['probability']}%\n\n"
-        f"*Объяснение:*\n"
-        f"RSI: {result['rsi']}, Объём: {result['volume']} USDT\n"
-        f"Тренд: {result['trend']}, 24ч: {result['change_24h']}%"
+        f"🔹 Символ: `{result['symbol']}`\n"
+        f"📈 Текущая цена: *{result['price']} USDT*\n"
+        f"🎯 Цель (+5%): *{result['target']}*\n"
+        f"🛡️ Стоп-лосс: *{result['stop']}*\n"
+        f"📊 Изменение за 24ч: *{result['change_24h']}%*\n"
+        f"📈 RSI: *{result['rsi']}*\n"
+        f"📉 MA7: *{result['ma7']}*, MA20: *{result['ma20']}*\n"
+        f"🧠 Оценка: *{result['score']}*, Вероятность роста: *{result['probability']}%*"
     )
 
-    markup = InlineKeyboardMarkup().add(
-        InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{result['symbol']}")
+    inline_kb = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("👁 Следить за монетой", callback_data=f"track:{result['symbol']}:{result['price']}")
     )
 
-    await message.answer(text, reply_markup=markup)
+    await message.answer(signal_text, reply_markup=inline_kb)
 
-@dp.message_handler(lambda message: "Остановить все отслеживания" in message.text)
-async def handle_stop_tracking(message: types.Message):
-    tracker.clear_all()
-    await message.answer("❌ Все отслеживания остановлены.")
+# Кнопка "Остановить все отслеживания"
+@dp.message_handler(lambda message: message.text == "🛑 Остановить все отслеживания")
+async def stop_tracking(message: types.Message):
+    if message.from_user.id != USER_ID:
+        return
+    await tracker.stop_all_tracking()
+    await message.answer("🔕 Все отслеживания остановлены.")
 
-@dp.callback_query_handler(lambda c: c.data.startswith("track_"))
-async def handle_track_callback(callback_query: types.CallbackQuery):
-    symbol = callback_query.data.split("_", 1)[1]
-    tracker.track(symbol)
-    await bot.answer_callback_query(callback_query.id)
-    await bot.send_message(callback_query.from_user.id, f"🔔 Монета {symbol} отслеживается. Уведомлю при росте +3.5% или +5%.")
+# Обработка inline кнопки "Следить за монетой"
+@dp.callback_query_handler(lambda call: call.data.startswith("track:"))
+async def handle_track_callback(call: types.CallbackQuery):
+    if call.from_user.id != USER_ID:
+        return
+    _, symbol, price = call.data.split(":")
+    await tracker.track_coin(symbol, float(price))
+    await call.answer(f"🟡 Начато отслеживание {symbol} от {price} USDT", show_alert=True)
 
+# Плановая ежедневная отправка сигнала
 async def send_daily_signal():
     result = generate_signal()
-    if result is None:
-        await bot.send_message(USER_ID, "⚠️ Утром не нашлось сильной монеты для сигнала. Повторите позже.")
-        return
+    if result:
+        signal_text = (
+            f"💡 *Сигнал на рост: {result['name']}*\n\n"
+            f"🔹 Символ: `{result['symbol']}`\n"
+            f"📈 Текущая цена: *{result['price']} USDT*\n"
+            f"🎯 Цель (+5%): *{result['target']}*\n"
+            f"🛡️ Стоп-лосс: *{result['stop']}*\n"
+            f"📊 Изменение за 24ч: *{result['change_24h']}%*\n"
+            f"📈 RSI: *{result['rsi']}*\n"
+            f"📉 MA7: *{result['ma7']}*, MA20: *{result['ma20']}*\n"
+            f"🧠 Оценка: *{result['score']}*, Вероятность роста: *{result['probability']}%*"
+        )
 
-    text = (
-        f"💡 *Сигнал на рост: {result['name']}*\n\n"
-        f"*Цена входа:* {result['entry_price']}\n"
-        f"*Цель +5%:* {result['target_price']}\n"
-        f"*Стоп-лосс:* {result['stop_loss']}\n"
-        f"*Вероятность роста:* {result['probability']}%\n\n"
-        f"*Объяснение:*\n"
-        f"RSI: {result['rsi']}, Объём: {result['volume']} USDT\n"
-        f"Тренд: {result['trend']}, 24ч: {result['change_24h']}%"
-    )
+        inline_kb = InlineKeyboardMarkup().add(
+            InlineKeyboardButton("👁 Следить за монетой", callback_data=f"track:{result['symbol']}:{result['price']}")
+        )
 
-    markup = InlineKeyboardMarkup().add(
-        InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{result['symbol']}")
-    )
+        await bot.send_message(USER_ID, signal_text, reply_markup=inline_kb)
+    else:
+        await bot.send_message(USER_ID, "⚠️ Сегодня подходящих монет нет. Завтра — новый день, новые возможности.")
 
-    await bot.send_message(USER_ID, text, reply_markup=markup)
-
-# Планировщик
-scheduler = BackgroundScheduler()
-scheduler.add_job(send_daily_signal, "cron", hour=8, minute=0)
-scheduler.start()
-
+# Планировщик запуска сигнала каждый день в 08:00 МСК
 async def on_startup(dp):
-    logger.info(f"⏳ До следующего сигнала: {minutes_until_8am()} минут")
-    logger.info("✅ Бот готов к работе.")
-
-def minutes_until_8am():
-    now = datetime.datetime.now()
-    next_8am = now.replace(hour=8, minute=0, second=0, microsecond=0)
-    if now >= next_8am:
-        next_8am += datetime.timedelta(days=1)
-    return int((next_8am - now).total_seconds() // 60)
+    scheduler.add_job(send_daily_signal, 'cron', hour=8, minute=0, timezone="Europe/Moscow")
+    scheduler.start()
+    minutes_until_next_signal = (datetime.combine(datetime.now(), datetime.min.time()) + timedelta(days=1, hours=8) - datetime.now()).seconds // 60
+    logger.info(f"⏳ До следующего сигнала: {minutes_until_next_signal} минут")
+    print("✅ Бот готов к работе.")
 
 if __name__ == "__main__":
     executor.start_polling(dp, on_startup=on_startup, skip_updates=True)
