@@ -1,44 +1,55 @@
 from analysis import analyze_coin
 from crypto_utils import get_top_coins
 
-# Порог вероятности для фильтра
+# Порог вероятности для выбора лучших монет
 MIN_PROBABILITY = 65
-MAX_DROP_24H = -3.0
 
 def generate_signal(return_top3=False):
     coins = get_top_coins()
-    candidates = []
+    analyzed = []
 
     for coin in coins:
         try:
-            metrics = analyze_coin(coin["id"])
-            if not metrics:
-                continue
-
-            prob = metrics["probability"]
-            change = coin["price_change_percentage_24h"]
-
-            if prob >= MIN_PROBABILITY and change > MAX_DROP_24H:
-                candidates.append({
-                    "name": coin["name"],
-                    "symbol": coin["symbol"],
-                    "price": coin["current_price"],
-                    "change_24h": change,
-                    "rsi": metrics["rsi"],
-                    "ma7": metrics["ma7"],
-                    "ma20": metrics["ma20"],
-                    "score": metrics["score"],
-                    "probability": prob,
-                    "entry": round(coin["current_price"], 4),
-                    "target": round(coin["current_price"] * 1.05, 4),
-                    "stop": round(coin["current_price"] * 0.965, 4),
+            metrics = analyze_coin(coin['id'])
+            if metrics and metrics['probability'] >= MIN_PROBABILITY and coin['price_change_percentage_24h'] > -3:
+                analyzed.append({
+                    'id': coin['id'],
+                    'symbol': coin['symbol'],
+                    'name': coin['name'],
+                    'price': coin['current_price'],
+                    'change_24h': coin['price_change_percentage_24h'],
+                    'probability': metrics['probability'],
+                    'rsi': metrics['rsi'],
+                    'ma7': metrics['ma7'],
+                    'ma20': metrics['ma20'],
+                    'score': metrics['score']
                 })
         except Exception:
             continue
 
-    candidates.sort(key=lambda x: (x["probability"], x["score"], x["change_24h"]), reverse=True)
+    if not analyzed:
+        return [] if return_top3 else None
+
+    # Сортировка по вероятности (и по 24h изменению как второму критерию)
+    analyzed.sort(key=lambda x: (x['probability'], x['change_24h']), reverse=True)
 
     if return_top3:
-        return candidates[:3]
+        return [_prepare_signal_data(c) for c in analyzed[:3]]
+    return _prepare_signal_data(analyzed[0])
 
-    return candidates[0] if candidates else None
+
+def _prepare_signal_data(coin):
+    return {
+        'name': coin['name'],
+        'symbol': coin['symbol'],
+        'price': coin['price'],
+        'change_24h': round(coin['change_24h'], 2),
+        'probability': coin['probability'],
+        'rsi': coin['rsi'],
+        'ma7': coin['ma7'],
+        'ma20': coin['ma20'],
+        'score': coin['score'],
+        'entry': round(coin['price'], 4),
+        'target': round(coin['price'] * 1.05, 4),
+        'stop': round(coin['price'] * 0.965, 4)
+    }
