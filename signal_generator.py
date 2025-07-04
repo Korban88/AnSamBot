@@ -1,6 +1,9 @@
 from analysis import analyze_coin
 from crypto_utils import get_top_coins
 
+MIN_PROBABILITY = 65
+MAX_DROP_24H = -3.0
+
 def generate_signal():
     coins = get_top_coins()
     analyzed = []
@@ -8,27 +11,33 @@ def generate_signal():
     for coin in coins:
         try:
             metrics = analyze_coin(coin['id'])
-            if metrics:
+            if not metrics:
+                continue
+
+            change_24h = coin['price_change_percentage_24h']
+            probability = metrics['probability']
+
+            if probability >= MIN_PROBABILITY and change_24h > MAX_DROP_24H:
                 analyzed.append({
                     'id': coin['id'],
                     'symbol': coin['symbol'],
                     'name': coin['name'],
                     'price': coin['current_price'],
-                    'change_24h': coin['price_change_percentage_24h'],
-                    'probability': metrics['probability'],
+                    'change_24h': change_24h,
+                    'probability': probability,
                     'rsi': metrics['rsi'],
                     'ma7': metrics['ma7'],
                     'ma20': metrics['ma20'],
                     'score': metrics['score']
                 })
-        except Exception:
+        except Exception as e:
             continue
 
     if not analyzed:
-        return None  # Реально критическая ошибка
+        return None
 
-    # Всегда возвращаем ЛУЧШУЮ монету по приоритету: probability -> score -> change_24h
-    best = sorted(analyzed, key=lambda x: (x['probability'], x['score'], x['change_24h']), reverse=True)[0]
+    analyzed.sort(key=lambda x: (x['probability'], x['score'], x['change_24h']), reverse=True)
+    best = analyzed[0]
 
     return {
         'name': best['name'],
