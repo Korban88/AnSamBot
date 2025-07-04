@@ -2,63 +2,69 @@ import requests
 import logging
 from ton_tokens import get_ton_wallet_tokens
 
-def fetch_coin_data(coin_ids):
-    url = "https://api.coingecko.com/api/v3/simple/price"
-    params = {
-        "ids": ",".join(coin_ids),
-        "vs_currencies": "usd",
-        "include_24hr_change": "true"
-    }
-    try:
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        logging.error(f"Ошибка при получении данных с CoinGecko: {e}")
-        return {}
-
-def estimate_growth_probability(change_24h, volume):
-    if change_24h > 4 and volume > 10_000_000:
-        return 80
-    if change_24h > 2 and volume > 5_000_000:
-        return 70
-    if change_24h > 0:
-        return 60
-    return 50
-
 def get_top_coins():
-    coin_ids = get_ton_wallet_tokens()
-    logging.info(f"Список монет из ton_tokens: {coin_ids}")
+    try:
+        token_ids = get_ton_wallet_tokens()
+        ids_str = ",".join(token_ids)
+        url = f"https://api.coingecko.com/api/v3/coins/markets"
+        params = {
+            "vs_currency": "usd",
+            "ids": ids_str,
+            "order": "market_cap_desc",
+            "per_page": len(token_ids),
+            "page": 1,
+            "price_change_percentage": "24h,7d"
+        }
+        response = requests.get(url, params=params)
+        data = response.json()
 
-    data = fetch_coin_data(coin_ids)
-    if not data:
-        logging.warning("Нет данных от CoinGecko")
-        return []
+        good_coins = []
 
-    coins = []
-    for coin_id in coin_ids:
-        if coin_id in data:
-            price = data[coin_id].get("usd")
-            change_24h = data[coin_id].get("usd_24h_change", 0)
-            volume = 10_000_000  # временно жёстко задан, позже подставим реальные данные
+        for coin in data:
+            price = coin.get("current_price")
+            change_24h = coin.get("price_change_percentage_24h_in_currency", 0)
+            change_7d = coin.get("price_change_percentage_7d_in_currency", 0)
+            volume = coin.get("total_volume", 0)
 
-            probability = estimate_growth_probability(change_24h, volume)
+            # 🔍 Простая аналитика
+            score = 0
+            score += 1 if change_24h > 0 else 0
+            score += 1 if change_7d > 0 else 0
+            score += 1 if volume > 10_000_000 else 0
+            score += 1 if change_24h > 3 else 0
+            score += 1 if change_7d > 5 else 0
 
-            if probability < 65 or change_24h < -3:
-                logging.info(f"Монета {coin_id} отфильтрована: change={change_24h}, prob={probability}")
-                continue
+            # 🔢 Примерно рассчитываем вероятность
+            probability = min(95, max(30, score * 10 + int(change_24h)))
 
-            coin = {
-                "id": coin_id,
-                "price": round(price, 4),
+            # 🟠 Пометка монеты как рискованной (если просела более чем на 3% за 24ч)
+            risky = change_24h < -3
+
+            target_price = round(price * 1.05, 4)
+            stop_loss_price = round(price * 0.965, 4)
+
+            coin_info = {
+                "id": coin.get("id"),
+                "price": price,
                 "change_24h": round(change_24h, 2),
+                "change_7d": round(change_7d, 2),
+                "volume": volume,
+                "score": score,
                 "probability": probability,
-                "target_price": round(price * 1.05, 4),
-                "stop_loss_price": round(price * 0.965, 4)
+                "target_price": target_price,
+                "stop_loss_price": stop_loss_price,
+                "risky": risky
             }
-            coins.append(coin)
-        else:
-            logging.info(f"Нет данных по монете: {coin_id}")
 
-    logging.info(f"Анализ завершён. Подходящих монет: {len(coins)}")
-    return sorted(coins, key=lambda x: x['probability'], reverse=True)[:3]
+            logging.info(f"Анализ монеты {coin_info['id']}: score={score}, prob={probability}, risky={risky}")
+            good_coins.append(coin_info)
+
+        # Сортировка по вероятности и объёму
+        sorted_coins = sorted(good_coins, key=lambda x: (x['probability'], x['volume']), reverse=True)
+
+        logging.info(f"Отобрано монет: {len(sorted_coins)}")
+        return sorted_coins[:10]
+
+    except Exception as e:
+        logging.error(f"Ошибка в get_top_coins: {e}")
+        return []
