@@ -13,14 +13,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Инициализация бота
-bot = Bot(token=BOT_TOKEN, parse_mode="MarkdownV2")
+bot = Bot(token=BOT_TOKEN, parse_mode="Markdown")
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
 
-# Инициализация трекера
+# Трекер
 tracker = CoinTracker(bot, USER_ID)
 
-# Кеш топ-3 монет
+# Кеш топ-3
 top3_cache = []
 top3_index = 0
 
@@ -41,19 +41,54 @@ def format_signal(result):
     return explanation
 
 
+def get_main_menu():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("🟢 Старт", callback_data="start"),
+        InlineKeyboardButton("🚀 Получить ещё сигнал", callback_data="get_signal"),
+        InlineKeyboardButton("🛑 Остановить все отслеживания", callback_data="stop_tracking")
+    )
+    return keyboard
+
+
 def get_signal_keyboard(symbol):
-    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard = InlineKeyboardMarkup()
     keyboard.add(InlineKeyboardButton("👁 Следить за монетой", callback_data=f"track:{symbol}"))
     return keyboard
 
 
 @dp.message_handler(commands=["start"])
-async def start_handler(message: types.Message):
-    await message.answer("✅ Я готов искать сигналы. Жми «Получить ещё сигнал».")
+async def cmd_start(message: types.Message):
+    await message.answer("✅ Я готов искать сигналы. Жми «Получить ещё сигнал».", reply_markup=get_main_menu())
 
 
-@dp.message_handler(lambda message: message.text.lower() == "получить ещё сигнал")
-async def manual_signal_handler(message: types.Message):
+@dp.callback_query_handler(lambda c: c.data == "start")
+async def start_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer("Ты нажал Старт")
+    await callback_query.message.answer("✅ Бот запущен. Я готов искать сигналы по криптовалютам.")
+
+
+@dp.callback_query_handler(lambda c: c.data == "get_signal")
+async def signal_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer("Ты запросил сигнал")
+    await send_signal(callback_query.message)
+
+
+@dp.callback_query_handler(lambda c: c.data == "stop_tracking")
+async def stop_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer("Отслеживание остановлено")
+    await tracker.clear()
+    await callback_query.message.answer("🛑 Все отслеживания остановлены.")
+
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith("track:"))
+async def track_callback(callback_query: types.CallbackQuery):
+    symbol = callback_query.data.split(":")[1]
+    await callback_query.answer("🔍 Монета добавлена в отслеживание")
+    await tracker.add(symbol)
+
+
+async def send_signal(message: types.Message):
     global top3_cache, top3_index
 
     if not top3_cache or top3_index >= len(top3_cache):
@@ -70,19 +105,6 @@ async def manual_signal_handler(message: types.Message):
     msg = format_signal(result)
     keyboard = get_signal_keyboard(result["symbol"])
     await message.answer(msg, reply_markup=keyboard)
-
-
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith("track:"))
-async def track_callback(callback_query: types.CallbackQuery):
-    symbol = callback_query.data.split(":")[1]
-    await callback_query.answer("🔍 Монета добавлена в отслеживание")
-    await tracker.add(symbol)
-
-
-@dp.message_handler(lambda message: message.text.lower() == "остановить все отслеживания")
-async def stop_tracking(message: types.Message):
-    await tracker.clear()
-    await message.answer("🛑 Все отслеживания остановлены.")
 
 
 async def send_daily_signal():
