@@ -1,5 +1,8 @@
+import asyncio
 import logging
-from crypto_utils import get_top_coins
+from crypto_utils import get_current_price
+
+logger = logging.getLogger(__name__)
 
 class CoinTracker:
     def __init__(self, bot, user_id):
@@ -8,51 +11,43 @@ class CoinTracker:
         self.tracked = {}
 
     async def add(self, symbol):
-        price = await self._get_price(symbol)
-        if price:
+        price = get_current_price(symbol)
+        if price is not None:
             self.tracked[symbol] = {
                 "start_price": price,
-                "start_time": self._current_timestamp()
+                "start_time": asyncio.get_event_loop().time()
             }
+            logger.info(f"▶️ Начато отслеживание {symbol} по цене {price}")
+        else:
+            logger.warning(f"❌ Не удалось получить цену для {symbol}")
 
     async def clear(self):
-        self.tracked = {}
+        self.tracked.clear()
+        logger.info("🛑 Отслеживания очищены")
 
     async def run(self):
-        if not self.tracked:
-            return
-
-        coins = get_top_coins()
-        prices = {c["symbol"]: c["current_price"] for c in coins}
-
-        to_notify = []
-
-        for symbol, data in list(self.tracked.items()):
-            current = prices.get(symbol)
-            if not current:
+        to_remove = []
+        for symbol, data in self.tracked.items():
+            current_price = get_current_price(symbol)
+            if current_price is None:
                 continue
 
-            start = data["start_price"]
-            delta = (current - start) / start * 100
-            elapsed = self._current_timestamp() - data["start_time"]
+            start_price = data["start_price"]
+            elapsed = asyncio.get_event_loop().time() - data["start_time"]
+            change_percent = ((current_price - start_price) / start_price) * 100
 
-            if delta >= 5:
-                to_notify.append(f"🎯 {symbol} вырос на +{round(delta, 2)}% — цель достигнута!")
-                del self.tracked[symbol]
-            elif elapsed > 12 * 3600:
-                to_notify.append(f"⏱ {symbol} не вырос за 12ч. Динамика: {round(delta, 2)}%")
-                del self.tracked[symbol]
+            if change_percent >= 5:
+                await self.bot.send_message(
+                    self.user_id,
+                    f"🎉 {symbol.upper()} вырос на +5% с момента отслеживания!\nТекущая цена: {current_price}",
+                )
+                to_remove.append(symbol)
+            elif elapsed >= 12 * 60 * 60:
+                await self.bot.send_message(
+                    self.user_id,
+                    f"⏱ {symbol.upper()} отслеживался 12 часов.\nИзменение: {change_percent:.2f}%\nТекущая цена: {current_price}",
+                )
+                to_remove.append(symbol)
 
-        for msg in to_notify:
-            await self.bot.send_message(self.user_id, msg)
-
-    async def _get_price(self, symbol):
-        coins = get_top_coins()
-        for c in coins:
-            if c["symbol"] == symbol:
-                return c["current_price"]
-        return None
-
-    def _current_timestamp(self):
-        import time
-        return int(time.time())
+        for symbol in to_remove:
+            del self.tracked[symbol]
