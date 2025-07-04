@@ -108,7 +108,6 @@ async def track_coin(message: types.Message):
 
         tracker = CoinTracker(bot, user_id)
         tracker.start_tracking(coin_id, entry_price)
-        tracker.run()
 
         await message.answer(
             f"👁 Запущено отслеживание *{coin_id}*\nТекущая цена: *{entry_price} \\$*"
