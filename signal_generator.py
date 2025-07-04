@@ -30,26 +30,25 @@ def generate_signal(return_top3=False):
     if not analyzed:
         return [] if return_top3 else None
 
-    # Сортировка по вероятности (и по 24h изменению как второму критерию)
+    # Сортировка по вероятности и изменению цены
     analyzed.sort(key=lambda x: (x['probability'], x['change_24h']), reverse=True)
 
     if return_top3:
-        return [_prepare_signal_data(c) for c in analyzed[:3]]
-    return _prepare_signal_data(analyzed[0])
+        return analyzed[:3]
 
+    best = analyzed[0]
 
-def _prepare_signal_data(coin):
     return {
-        'name': coin['name'],
-        'symbol': coin['symbol'],
-        'price': coin['price'],
-        'change_24h': round(coin['change_24h'], 2),
-        'probability': coin['probability'],
-        'rsi': coin['rsi'],
-        'ma7': coin['ma7'],
-        'ma20': coin['ma20'],
-        'score': coin['score'],
-        'entry': round(coin['price'], 4),
-        'target': round(coin['price'] * 1.05, 4),
-        'stop': round(coin['price'] * 0.965, 4)
+        'name': best['name'],
+        'symbol': best['symbol'],
+        'price': best['price'],
+        'change_24h': best['change_24h'],
+        'probability': best['probability'],
+        'rsi': best['rsi'],
+        'ma7': best['ma7'],
+        'ma20': best['ma20'],
+        'score': best['score'],
+        'entry': round(best['price'], 4),
+        'target': round(best['price'] * 1.05, 4),
+        'stop': round(best['price'] * 0.965, 4)
     }
