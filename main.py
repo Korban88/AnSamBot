@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=API_TOKEN, parse_mode=types.ParseMode.HTML)
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
-tracker = CoinTracker(bot)
+tracker = CoinTracker(bot, 347552741)
 
 # Главное меню без кнопки "Следить за монетой"
 main_menu = InlineKeyboardMarkup(row_width=2)
