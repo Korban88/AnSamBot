@@ -13,25 +13,25 @@ dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
 tracker = CoinTracker(bot, USER_ID)
 
-user_state = {}
-
-keyboard_main = types.ReplyKeyboardMarkup(resize_keyboard=True)
-keyboard_main.add("📈 Получить ещё сигнал")
+# Главное меню
+main_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+main_keyboard.add("📈 Получить ещё сигнал")
 
 @dp.message_handler(commands=["start"])
 async def start_command(message: types.Message):
     if message.chat.id != USER_ID:
         return
-    await message.answer("Бот запущен. Я готов находить для тебя лучшие монеты.", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True))
-    await message.answer("Выбери действие:", reply_markup=keyboard_main)
+    await message.answer("✅ Бот запущен и готов находить сигналы.", reply_markup=main_keyboard)
 
 @dp.message_handler(lambda message: message.text == "📈 Получить ещё сигнал")
-async def send_signal(message: types.Message):
+async def handle_signal(message: types.Message):
     if message.chat.id != USER_ID:
         return
 
     result = generate_signal()
-    logger.info("🔍 Получен результат сигнала: %s", result)
+    if not result:
+        await message.answer("⚠️ Сейчас нет подходящих монет. Но рынок живёт — запроси ещё чуть позже.")
+        return
 
     text = (
         f"💡 *Сигнал на рост: {result['name']}*\n\n"
@@ -46,20 +46,22 @@ async def send_signal(message: types.Message):
         f"📈 Вероятность роста: *{result['probability']}%*"
     )
 
-    inline_btn = types.InlineKeyboardMarkup()
-    inline_btn.add(types.InlineKeyboardButton("👁 Следить за монетой", callback_data=f"track_{result['symbol']}"))
+    buttons = types.InlineKeyboardMarkup()
+    buttons.add(types.InlineKeyboardButton("👁 Следить за монетой", callback_data=f"track_{result['symbol']}"))
 
-    await message.answer(text, reply_markup=inline_btn)
+    await message.answer(text, reply_markup=buttons)
 
 @dp.callback_query_handler(lambda call: call.data.startswith("track_"))
-async def track_coin(call: types.CallbackQuery):
-    coin_symbol = call.data.split("_")[1]
-    await tracker.track_coin(coin_symbol)
-    await call.answer(f"Теперь отслеживаю {coin_symbol} на +3.5% и +5%")
+async def handle_track(call: types.CallbackQuery):
+    coin = call.data.split("_")[1]
+    await tracker.track_coin(coin)
+    await call.answer(f"🟢 Отслеживаю {coin} на +3.5% и +5%")
 
 async def send_daily_signal():
     result = generate_signal()
-    logger.info("📤 Ежедневный сигнал: %s", result)
+    if not result:
+        await bot.send_message(USER_ID, "⚠️ Сегодня нет подходящих монет.")
+        return
 
     text = (
         f"💡 *Сигнал на рост: {result['name']}*\n\n"
@@ -74,16 +76,15 @@ async def send_daily_signal():
         f"📈 Вероятность роста: *{result['probability']}%*"
     )
 
-    inline_btn = types.InlineKeyboardMarkup()
-    inline_btn.add(types.InlineKeyboardButton("👁 Следить за монетой", callback_data=f"track_{result['symbol']}"))
+    buttons = types.InlineKeyboardMarkup()
+    buttons.add(types.InlineKeyboardButton("👁 Следить за монетой", callback_data=f"track_{result['symbol']}"))
 
-    await bot.send_message(USER_ID, text, reply_markup=inline_btn)
+    await bot.send_message(USER_ID, text, reply_markup=buttons)
 
 async def on_startup(dp):
     scheduler.add_job(send_daily_signal, "cron", hour=8, minute=0)
     scheduler.start()
-    logger.info("✅ Бот готов к работе.")
-    print("⏳ До следующего сигнала: 1167.0 минут")
+    print("✅ Бот готов к работе.")
 
 if __name__ == "__main__":
-    executor.start_polling(dp, on_startup=on_startup, skip_updates=True)
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
