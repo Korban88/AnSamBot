@@ -4,6 +4,7 @@ from crypto_utils import get_top_coins
 
 # Порог вероятности для выбора лучших монет
 MIN_PROBABILITY = 65
+MAX_NEGATIVE_CHANGE = -3  # Максимальное падение за 24ч (в %), ниже которого монета исключается
 
 def generate_signal():
     coins = get_top_coins()
@@ -13,28 +14,31 @@ def generate_signal():
         try:
             metrics = analyze_coin(coin['id'])
             if metrics:
-                analyzed.append({
-                    'id': coin['id'],
-                    'symbol': coin['symbol'],
-                    'name': coin['name'],
-                    'price': coin['current_price'],
-                    'change_24h': coin['price_change_percentage_24h'],
-                    'probability': metrics['probability'],
-                    'rsi': metrics['rsi'],
-                    'ma7': metrics['ma7'],
-                    'ma20': metrics['ma20'],
-                    'score': metrics['score']
-                })
+                change_24h = coin['price_change_percentage_24h']
+                probability = metrics['probability']
+                if probability >= MIN_PROBABILITY and change_24h > MAX_NEGATIVE_CHANGE:
+                    analyzed.append({
+                        'id': coin['id'],
+                        'symbol': coin['symbol'],
+                        'name': coin['name'],
+                        'price': coin['current_price'],
+                        'change_24h': change_24h,
+                        'probability': probability,
+                        'rsi': metrics['rsi'],
+                        'ma7': metrics['ma7'],
+                        'ma20': metrics['ma20'],
+                        'score': metrics['score']
+                    })
         except Exception:
             continue
 
     if not analyzed:
         return None
 
-    # Сортировка по вероятности (и по change_24h как вторичный критерий)
+    # Сортировка по вероятности и суточному изменению
     analyzed.sort(key=lambda x: (x['probability'], x['change_24h']), reverse=True)
 
-    best = analyzed[0]  # Самая перспективная монета
+    best = analyzed[0]
 
     return {
         'name': best['name'],
