@@ -1,1 +1,2 @@
-<содержимое config.py>
+BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
+USER_ID = 347552741
