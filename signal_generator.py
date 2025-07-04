@@ -1,0 +1,1 @@
+<содержимое signal_generator.py>
