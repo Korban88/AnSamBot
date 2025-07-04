@@ -87,15 +87,15 @@ async def send_daily_signal():
     )
     await bot.send_message(USER_ID, text, reply_markup=track_button)
 
-# Запуск планировщика
+# Планировщик
 scheduler = AsyncIOScheduler()
 scheduler.add_job(send_daily_signal, 'cron', hour=8, minute=0)
 scheduler.start()
 logger.info("⏳ До следующего сигнала: 1167.0 минут")
 
-# Запуск трекера
+# Запуск бота
 async def on_startup(dp):
-    await tracker.load()
+    logger.info("✅ Бот готов к работе.")
 
 if __name__ == "__main__":
     executor.start_polling(dp, on_startup=on_startup, skip_updates=True)
