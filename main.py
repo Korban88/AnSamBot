@@ -1,12 +1,11 @@
 import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 from aiogram.dispatcher.filters import Text
-
 from crypto_utils import get_top_coins
-from tracking import CoinTracker
 from scheduler import schedule_daily_signal
+from tracking import CoinTracker
 
 BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 USER_ID = 347552741
@@ -17,18 +16,15 @@ bot = Bot(token=BOT_TOKEN, parse_mode="MarkdownV2")
 dp = Dispatcher(bot)
 
 tracker = None
+sent_coin_ids = []
 
 keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
 keyboard.add(KeyboardButton("🟢 Старт"))
 keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
-keyboard.add(KeyboardButton("👁 Следить за монетой"))
 keyboard.add(KeyboardButton("🔴 Остановить все отслеживания"))
 
-def esc_md(text: str) -> str:
-    escape_chars = r'\_*[]()~`>#+-=|{}.!'
-    for ch in escape_chars:
-        text = text.replace(ch, '\\' + ch)
-    return text
+def esc(text):
+    return str(text).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("+", "\\+").replace("%", "\\%").replace("$", "\\$").replace("_", "\\_")
 
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
@@ -39,94 +35,57 @@ async def activate_bot(message: types.Message):
     await message.answer("Бот активирован\\. Ждите сигналы каждый день в 8\\:00 МСК\\.")
 
 @dp.message_handler(Text(equals="🚀 Получить ещё сигнал"))
-async def send_signals(message: types.Message):
-    logging.info("Нажата кнопка 'Получить ещё сигнал'")
-    try:
-        await message.answer("⚙️ Обработка сигнала...")
-    except Exception as e:
-        logging.error(f"Ошибка при отправке стартового сообщения: {e}")
+async def send_next_signal(message: types.Message):
+    global sent_coin_ids
+    await message.answer("⚙️ Обработка сигнала...")
 
-    try:
-        coins = get_top_coins()
-        logging.info(f"Получено монет: {len(coins)}")
-    except Exception as e:
-        logging.error(f"Ошибка в get_top_coins(): {e}")
-        try:
-            await message.answer(f"Ошибка при получении сигналов: {e}")
-        except Exception as ex:
-            logging.error(f"Ошибка при отправке сообщения об ошибке get_top_coins: {ex}")
-        return
+    coins = get_top_coins()
+    filtered = [coin for coin in coins if coin["id"] not in sent_coin_ids]
 
-    if not coins:
-        logging.warning("Список монет пуст, сигнал не отправлен.")
-        try:
-            await message.answer("Не удалось получить сигналы. Попробуйте позже.")
-        except Exception as e:
-            logging.error(f"Ошибка при отправке сообщения о пустом списке монет: {e}")
-        return
+    if not filtered:
+        sent_coin_ids = []
+        filtered = coins
 
-    for coin in coins:
-        try:
-            text_md = (
-                f"*💰 Сигнал:*\n"
-                f"Монета: *{esc_md(str(coin['id']))}*\n"
-                f"Цена: *{esc_md(str(coin['price']))} \\$*\n"
-                f"Рост за 24ч: *{esc_md(str(coin['change_24h']))}\\%*\n"
-                f"{'🟢' if float(coin['probability']) >= 70 else '🔴'} Вероятность роста: *{esc_md(str(coin['probability']))}\\%*\n"
-                f"🎯 Цель: *{esc_md(str(coin['target_price']))} \\$* \\(\\+5\\%\\)\n"
-                f"⛔️ Стоп\\-лосс: *{esc_md(str(coin['stop_loss_price']))} \\$* \\(\\-3\\.5\\%\\)"
-            )
-            text_plain = (
-                f"Сигнал:\n"
-                f"Монета: {coin['id']}\n"
-                f"Цена: {coin['price']} $\n"
-                f"Рост за 24ч: {coin['change_24h']}%\n"
-                f"Вероятность роста: {coin['probability']}%\n"
-                f"Цель: {coin['target_price']} $\n"
-                f"Стоп-лосс: {coin['stop_loss_price']} $"
-            )
-        except Exception as e:
-            logging.error(f"Ошибка при формировании текста по монете {coin}: {e}")
-            continue
+    coin = filtered[0]
+    sent_coin_ids.append(coin["id"])
 
-        try:
-            await message.answer(text_md, parse_mode="MarkdownV2")
-            logging.info(f"Отправлен сигнал по монете {coin['id']} с MarkdownV2")
-        except Exception as e:
-            logging.error(f"Ошибка MarkdownV2 при отправке {coin['id']}: {e}, пробую отправить без форматирования")
-            try:
-                await message.answer(text_plain)
-                logging.info(f"Отправлен сигнал по монете {coin['id']} без форматирования")
-            except Exception as ex:
-                logging.error(f"Ошибка при отправке без форматирования {coin['id']}: {ex}")
-                try:
-                    await message.answer(f"⚠️ Ошибка при отправке сигнала по монете {coin['id']}")
-                except Exception as exc:
-                    logging.error(f"Ошибка при отправке сообщения об ошибке {coin['id']}: {exc}")
+    name = coin['id']
+    price = coin['price']
+    change = coin['change_24h']
+    probability = coin['probability']
+    target_price = coin['target_price']
+    stop_loss_price = coin['stop_loss_price']
 
-@dp.message_handler(Text(equals="👁 Следить за монетой"))
-async def track_coin(message: types.Message):
+    text = (
+        f"💰 *Сигнал:*\n"
+        f"Монета: *{esc(name)}*\n"
+        f"Цена: *{esc(price)} \\$*\n"
+        f"Рост за 24ч: *{esc(change)}\\%*\n"
+        f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: *{esc(probability)}\\%*\n"
+        f"🎯 Цель: *{esc(target_price)} \\$* \\(\\+5\\%\\)\n"
+        f"⛔️ Стоп\\-лосс: *{esc(stop_loss_price)} \\$* \\(\\-3\\.5\\%\\)"
+    )
+
+    inline_kb = InlineKeyboardMarkup()
+    inline_kb.add(InlineKeyboardButton(text="👁 Следить за монетой", callback_data=f"track_{name}_{price}"))
+
+    await message.answer(text, reply_markup=inline_kb)
+
+@dp.callback_query_handler(lambda c: c.data.startswith("track_"))
+async def process_tracking(callback_query: types.CallbackQuery):
     global tracker
-    user_id = message.from_user.id
-    coin_id = "toncoin"
+    _, coin_id, price_str = callback_query.data.split("_")
+    entry_price = float(price_str)
 
-    from pycoingecko import CoinGeckoAPI
-    cg = CoinGeckoAPI()
-    try:
-        price_data = cg.get_price(ids=coin_id, vs_currencies='usd')
-        entry_price = float(price_data[coin_id]["usd"])
+    tracker = CoinTracker(bot, callback_query.from_user.id)
+    tracker.start_tracking(coin_id, entry_price)
+    tracker.run()
 
-        tracker = CoinTracker(bot, user_id)
-        tracker.start_tracking(coin_id, entry_price)
-        tracker.run()
-
-        await message.answer(
-            f"👁 Запущено отслеживание *{esc_md(coin_id)}*\nТекущая цена: *{esc_md(str(entry_price))} \\$*"
-        )
-
-    except Exception as e:
-        logging.error(f"Ошибка запуска отслеживания: {e}")
-        await message.answer(f"❌ Ошибка запуска отслеживания: {esc_md(str(e))}")
+    await bot.answer_callback_query(callback_query.id)
+    await bot.send_message(
+        callback_query.from_user.id,
+        f"👁 Запущено отслеживание *{coin_id}*\nТекущая цена: *{entry_price} \\$*"
+    )
 
 @dp.message_handler(Text(equals="🔴 Остановить все отслеживания"))
 async def stop_tracking(message: types.Message):
