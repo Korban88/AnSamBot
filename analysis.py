@@ -1,58 +1,65 @@
 import requests
-import random
+import datetime
+import time
 import logging
 
-def analyze_coin(coin_id):
+from crypto_list import crypto_list
+
+
+def get_current_price(symbol):
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd"
     try:
-        url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
-        params = {
-            "vs_currency": "usd",
-            "days": 7,
-            "interval": "hourly"
-        }
-        response = requests.get(url, params=params)
+        response = requests.get(url, timeout=10)
         data = response.json()
-
-        prices = [price[1] for price in data["prices"]]
-        if len(prices) < 20:
-            return None
-
-        # RSI (простая модель)
-        deltas = [prices[i] - prices[i - 1] for i in range(1, len(prices))]
-        gains = [d for d in deltas if d > 0]
-        losses = [-d for d in deltas if d < 0]
-        avg_gain = sum(gains[-14:]) / 14 if gains else 0.01
-        avg_loss = sum(losses[-14:]) / 14 if losses else 0.01
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-
-        # Скользящие средние
-        ma7 = sum(prices[-7:]) / 7
-        ma20 = sum(prices[-20:]) / 20
-
-        # Изменение за 24 часа
-        change_24h = ((prices[-1] - prices[-25]) / prices[-25]) * 100
-
-        # Условная формула "оценки"
-        score = (
-            (rsi - 50) * 0.4 +
-            ((ma7 - ma20) / ma20) * 100 * 0.4 +
-            change_24h * 0.2
-        )
-
-        # Перевод оценки в вероятность
-        probability = min(100, max(0, round(60 + score * 0.8, 2)))
-
-        logging.info(f"[Анализ] {coin_id}: prob={probability}%, vol={prices[-1] * 1000000:.2f}, 24h={change_24h}%")
-
-        return {
-            "rsi": round(rsi, 2),
-            "ma7": round(ma7, 4),
-            "ma20": round(ma20, 4),
-            "score": round(score, 2),
-            "probability": probability,
-        }
-
+        return data[symbol]["usd"]
     except Exception as e:
-        logging.warning(f"Ошибка анализа {coin_id}: {e}")
+        logging.warning(f"Ошибка получения цены для {symbol}: {e}")
         return None
+
+
+def get_price_history(symbol, days=1):
+    url = f"https://api.coingecko.com/api/v3/coins/{symbol}/market_chart?vs_currency=usd&days={days}"
+    try:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        if 'prices' in data:
+            return data['prices']
+        else:
+            raise ValueError(f"'prices' не найден в данных для {symbol}")
+    except Exception as e:
+        logging.warning(f"Ошибка анализа {symbol}: {e}")
+        return None
+
+
+def analyze_coin(symbol):
+    prices = get_price_history(symbol)
+    if not prices or len(prices) < 2:
+        return None
+
+    current_price = prices[-1][1]
+    previous_price = prices[0][1]
+    change_percent = ((current_price - previous_price) / previous_price) * 100
+
+    # Фиктивная логика оценки (заменим позже на реальную)
+    score = max(0, min(100, 50 + change_percent))  # просто как заглушка
+    probability = round(min(100, max(0, 50 + change_percent)), 2)
+
+    return {
+        "symbol": symbol,
+        "current_price": round(current_price, 6),
+        "change_percent": round(change_percent, 2),
+        "probability": probability,
+        "score": score,
+    }
+
+
+def analyze_all_coins():
+    results = []
+    for symbol in crypto_list:
+        time.sleep(1.3)  # защита от блокировки API
+        result = analyze_coin(symbol)
+        if result and result["probability"] >= 65 and result["change_percent"] > -3:
+            results.append(result)
+
+    results.sort(key=lambda x: x["probability"], reverse=True)
+    return results[:3]  # только топ-3
