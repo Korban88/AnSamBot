@@ -1,12 +1,13 @@
 import logging
-import asyncio
-from aiogram import Bot, Dispatcher, executor, types
+from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from datetime import datetime, timedelta
-from config import BOT_TOKEN, USER_ID
+from aiogram.utils import executor
+from aiogram.dispatcher.filters import Text
+from apscheduler.schedulers.background import BackgroundScheduler
 from signal_generator import generate_signal
 from tracker import CoinTracker
+from config import BOT_TOKEN, USER_ID
+import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,86 +17,91 @@ dp = Dispatcher(bot)
 tracker = CoinTracker(bot, USER_ID)
 
 # Главное меню
-main_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-main_keyboard.add(KeyboardButton("📈 Получить ещё сигнал"))
-main_keyboard.add(KeyboardButton("🛑 Остановить все отслеживания"))
+main_menu = ReplyKeyboardMarkup(resize_keyboard=True)
+main_menu.add(
+    KeyboardButton("📈 Получить ещё сигнал"),
+    KeyboardButton("🛑 Остановить все отслеживания")
+)
 
-# Команда старт
 @dp.message_handler(commands=["start"])
-async def start_cmd(message: types.Message):
-    if message.from_user.id != USER_ID:
-        return
-    await message.answer("Добро пожаловать в новую жизнь, Корбан!", reply_markup=main_keyboard)
+async def cmd_start(message: types.Message):
+    await message.answer("Добро пожаловать в новую жизнь, Корбан!\n\nБот готов выдавать тебе сильнейшие сигналы каждый день в 08:00 по Москве.", reply_markup=main_menu)
 
-# Обработка команды получения сигнала
-@dp.message_handler(lambda message: message.text == "📈 Получить ещё сигнал")
-async def send_signal(message: types.Message):
-    if message.from_user.id != USER_ID:
-        return
+@dp.message_handler(Text(equals="📈 Получить ещё сигнал"))
+async def handle_get_signal(message: types.Message):
     result = generate_signal()
-    if not result:
-        await message.answer("⚠️ Не удалось найти перспективную монету для сигнала.")
+    if result is None:
+        await message.answer("⚠️ Сейчас нет подходящих монет. Но рынок живёт — запроси ещё чуть позже.")
         return
 
     text = (
         f"💡 *Сигнал на рост: {result['name']}*\n\n"
-        f"Текущая цена: `{result['price']}`\n"
-        f"Цель: `{result['target_price']} (+5%)`\n"
-        f"Stop-loss: `{result['stop_loss']}`\n\n"
-        f"*Вероятность роста:* {result['probability']}%\n"
-        f"📊 {result['reason']}"
+        f"*Цена входа:* {result['entry_price']}\n"
+        f"*Цель +5%:* {result['target_price']}\n"
+        f"*Стоп-лосс:* {result['stop_loss']}\n"
+        f"*Вероятность роста:* {result['probability']}%\n\n"
+        f"*Объяснение:*\n"
+        f"RSI: {result['rsi']}, Объём: {result['volume']} USDT\n"
+        f"Тренд: {result['trend']}, 24ч: {result['change_24h']}%"
     )
 
-    track_button = InlineKeyboardMarkup().add(
-        InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track:{result['symbol']}")
+    # Кнопка отслеживания монеты
+    markup = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{result['symbol']}")
     )
-    await message.answer(text, reply_markup=track_button)
 
-# Обработка кнопки "Остановить все отслеживания"
-@dp.message_handler(lambda message: message.text == "🛑 Остановить все отслеживания")
-async def stop_tracking(message: types.Message):
-    if message.from_user.id != USER_ID:
-        return
-    await tracker.stop_all()
-    await message.answer("⛔️ Все отслеживания монет остановлены.")
+    await message.answer(text, reply_markup=markup)
 
-# Обработка inline-кнопки "Следить за монетой"
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith("track:"))
-async def handle_tracking_callback(callback_query: types.CallbackQuery):
-    symbol = callback_query.data.split(":")[1]
-    await tracker.start_tracking(symbol)
-    await callback_query.answer(f"⏱ Начинаем отслеживать {symbol}")
+@dp.message_handler(Text(equals="🛑 Остановить все отслеживания"))
+async def handle_stop_tracking(message: types.Message):
+    tracker.clear_all()
+    await message.answer("❌ Все отслеживания остановлены.")
 
-# Плановая рассылка сигнала каждый день в 8:00
+@dp.callback_query_handler(lambda c: c.data.startswith("track_"))
+async def handle_track_callback(callback_query: types.CallbackQuery):
+    symbol = callback_query.data.split("_", 1)[1]
+    tracker.track(symbol)
+    await bot.answer_callback_query(callback_query.id)
+    await bot.send_message(callback_query.from_user.id, f"🔔 Монета {symbol} отслеживается. Уведомлю при росте +3.5% или +5%.")
+
 async def send_daily_signal():
     result = generate_signal()
-    if not result:
-        await bot.send_message(USER_ID, "⚠️ Не удалось найти монету для сигнала.")
+    if result is None:
+        await bot.send_message(USER_ID, "⚠️ Утром не нашлось сильной монеты для сигнала. Повторите позже.")
         return
 
     text = (
         f"💡 *Сигнал на рост: {result['name']}*\n\n"
-        f"Текущая цена: `{result['price']}`\n"
-        f"Цель: `{result['target_price']} (+5%)`\n"
-        f"Stop-loss: `{result['stop_loss']}`\n\n"
-        f"*Вероятность роста:* {result['probability']}%\n"
-        f"📊 {result['reason']}"
+        f"*Цена входа:* {result['entry_price']}\n"
+        f"*Цель +5%:* {result['target_price']}\n"
+        f"*Стоп-лосс:* {result['stop_loss']}\n"
+        f"*Вероятность роста:* {result['probability']}%\n\n"
+        f"*Объяснение:*\n"
+        f"RSI: {result['rsi']}, Объём: {result['volume']} USDT\n"
+        f"Тренд: {result['trend']}, 24ч: {result['change_24h']}%"
     )
 
-    track_button = InlineKeyboardMarkup().add(
-        InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track:{result['symbol']}")
+    markup = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{result['symbol']}")
     )
-    await bot.send_message(USER_ID, text, reply_markup=track_button)
+
+    await bot.send_message(USER_ID, text, reply_markup=markup)
 
 # Планировщик
-scheduler = AsyncIOScheduler()
-scheduler.add_job(send_daily_signal, 'cron', hour=8, minute=0)
+scheduler = BackgroundScheduler()
+scheduler.add_job(send_daily_signal, "cron", hour=8, minute=0)
 scheduler.start()
-logger.info("⏳ До следующего сигнала: 1167.0 минут")
 
-# Запуск бота
 async def on_startup(dp):
+    logger.info(f"⏳ До следующего сигнала: {minutes_until_8am()} минут")
     logger.info("✅ Бот готов к работе.")
+
+def minutes_until_8am():
+    now = datetime.datetime.now()
+    next_8am = now.replace(hour=8, minute=0, second=0, microsecond=0)
+    if now >= next_8am:
+        next_8am += datetime.timedelta(days=1)
+    return int((next_8am - now).total_seconds() // 60)
 
 if __name__ == "__main__":
     executor.start_polling(dp, on_startup=on_startup, skip_updates=True)
