@@ -27,7 +27,13 @@ keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
 keyboard.add(KeyboardButton("🔴 Остановить все отслеживания"))
 
 def esc(text):
-    return str(text).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("+", "\\+").replace("%", "\\%").replace("$", "\\$").replace("_", "\\_")
+    return str(text).replace('\\', '\\\\') \
+        .replace('.', '\\.') \
+        .replace('-', '\\-') \
+        .replace('(', '\\(').replace(')', '\\)') \
+        .replace('+', '\\+').replace('%', '\\%') \
+        .replace('$', '\\$').replace('_', '\\_') \
+        .replace('!', '\\!').replace(':', '\\:')
 
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
@@ -100,6 +106,7 @@ async def send_signals(message: types.Message):
 async def track_selected_coin(callback_query: types.CallbackQuery):
     global tracker
     coin_id = callback_query.data.replace("track_", "")
+    logging.info(f"▶️ Получен callback: отслеживание {coin_id}")
 
     from pycoingecko import CoinGeckoAPI
     cg = CoinGeckoAPI()
