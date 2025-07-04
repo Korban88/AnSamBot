@@ -1,51 +1,58 @@
-import asyncio
 import logging
-from crypto_utils import get_price_by_symbol
-
-logger = logging.getLogger(__name__)
-
+from crypto_utils import get_top_coins
 
 class CoinTracker:
     def __init__(self, bot, user_id):
         self.bot = bot
         self.user_id = user_id
-        self.tracked = {}  # {symbol: {'start_price': ..., 'start_time': ...}}
+        self.tracked = {}
 
     async def add(self, symbol):
-        current_price = get_price_by_symbol(symbol)
-        if not current_price:
-            return
-        self.tracked[symbol] = {
-            "start_price": current_price,
-            "start_time": asyncio.get_event_loop().time()
-        }
+        price = await self._get_price(symbol)
+        if price:
+            self.tracked[symbol] = {
+                "start_price": price,
+                "start_time": self._current_timestamp()
+            }
 
     async def clear(self):
-        self.tracked.clear()
+        self.tracked = {}
 
     async def run(self):
+        if not self.tracked:
+            return
+
+        coins = get_top_coins()
+        prices = {c["symbol"]: c["current_price"] for c in coins}
+
+        to_notify = []
+
         for symbol, data in list(self.tracked.items()):
-            current_price = get_price_by_symbol(symbol)
-            if not current_price:
+            current = prices.get(symbol)
+            if not current:
                 continue
 
-            change_percent = (current_price - data["start_price"]) / data["start_price"] * 100
-            elapsed_time = asyncio.get_event_loop().time() - data["start_time"]
+            start = data["start_price"]
+            delta = (current - start) / start * 100
+            elapsed = self._current_timestamp() - data["start_time"]
 
-            if change_percent >= 5:
-                await self.bot.send_message(
-                    self.user_id,
-                    f"🚀 {symbol.upper()} вырос на +5% с момента отслеживания!\nЦена: {current_price}"
-                )
+            if delta >= 5:
+                to_notify.append(f"🎯 {symbol} вырос на +{round(delta, 2)}% — цель достигнута!")
                 del self.tracked[symbol]
-            elif elapsed_time > 12 * 60 * 60:  # 12 часов
-                await self.bot.send_message(
-                    self.user_id,
-                    f"⏱ По {symbol.upper()} прошло 12 часов. Изменение: {round(change_percent, 2)}%\nТекущая цена: {current_price}"
-                )
+            elif elapsed > 12 * 3600:
+                to_notify.append(f"⏱ {symbol} не вырос за 12ч. Динамика: {round(delta, 2)}%")
                 del self.tracked[symbol]
-            elif change_percent >= 3.5:
-                await self.bot.send_message(
-                    self.user_id,
-                    f"📈 {symbol.upper()} приближается к цели: +{round(change_percent, 2)}%\nЦена: {current_price}"
-                )
+
+        for msg in to_notify:
+            await self.bot.send_message(self.user_id, msg)
+
+    async def _get_price(self, symbol):
+        coins = get_top_coins()
+        for c in coins:
+            if c["symbol"] == symbol:
+                return c["current_price"]
+        return None
+
+    def _current_timestamp(self):
+        import time
+        return int(time.time())
