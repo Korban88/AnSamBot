@@ -1,6 +1,6 @@
 import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 from aiogram.dispatcher.filters import Text
 
@@ -24,7 +24,6 @@ cached_signals = []
 keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
 keyboard.add(KeyboardButton("🟢 Старт"))
 keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
-keyboard.add(KeyboardButton("👁 Следить за монетой"))
 keyboard.add(KeyboardButton("🔴 Остановить все отслеживания"))
 
 def esc(text):
@@ -87,18 +86,20 @@ async def send_signals(message: types.Message):
             f"{risk_note}"
         )
 
-        await message.answer(text)
+        inline_btn = InlineKeyboardMarkup()
+        inline_btn.add(InlineKeyboardButton(f"👁 Следить за {name}", callback_data=f"track_{name}"))
+
+        await message.answer(text, reply_markup=inline_btn)
 
     except Exception as e:
         logging.error(f"Ошибка при отправке сигнала: {e}")
         safe_err = esc(str(e))
         await message.answer(f"⚠️ Ошибка: {safe_err}")
 
-@dp.message_handler(Text(equals="👁 Следить за монетой"))
-async def track_coin(message: types.Message):
+@dp.callback_query_handler(lambda c: c.data.startswith("track_"))
+async def track_selected_coin(callback_query: types.CallbackQuery):
     global tracker
-    user_id = message.from_user.id
-    coin_id = "toncoin"
+    coin_id = callback_query.data.replace("track_", "")
 
     from pycoingecko import CoinGeckoAPI
     cg = CoinGeckoAPI()
@@ -106,16 +107,20 @@ async def track_coin(message: types.Message):
         price_data = cg.get_price(ids=coin_id, vs_currencies='usd')
         entry_price = float(price_data[coin_id]["usd"])
 
-        tracker = CoinTracker(bot, user_id)
+        tracker = CoinTracker(bot, callback_query.from_user.id)
         tracker.start_tracking(coin_id, entry_price)
 
-        await message.answer(
-            f"👁 Запущено отслеживание *{coin_id}*\nТекущая цена: *{entry_price} \\$*"
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(
+            callback_query.from_user.id,
+            f"👁 Отслеживание *{esc(coin_id)}* начато\\.\nТекущая цена: *{entry_price} \\$*",
+            parse_mode="MarkdownV2"
         )
 
     except Exception as e:
         safe_error = esc(str(e))
-        await message.answer(f"❌ Ошибка запуска отслеживания: {safe_error}")
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(callback_query.from_user.id, f"❌ Ошибка запуска отслеживания: {safe_error}")
 
 @dp.message_handler(Text(equals="🔴 Остановить все отслеживания"))
 async def stop_tracking(message: types.Message):
