@@ -1,6 +1,5 @@
 import requests
 import logging
-from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -44,3 +43,28 @@ def analyze_coin(coin_id):
         "score": round(score, 2),
         "probability": probability
     }
+
+def analyze_all_coins(coin_list):
+    results = []
+    for coin_id in coin_list:
+        try:
+            result = analyze_coin(coin_id)
+            if result:
+                results.append(result)
+        except Exception as e:
+            logger.warning(f"Ошибка анализа {coin_id}: {e}")
+    return results
+
+def get_current_price(coin_id):
+    url = f"https://api.coingecko.com/api/v3/simple/price"
+    params = {
+        "ids": coin_id,
+        "vs_currencies": "usd"
+    }
+    try:
+        response = requests.get(url, params=params)
+        data = response.json()
+        return data[coin_id]["usd"]
+    except Exception as e:
+        logger.error(f"Ошибка получения текущей цены для {coin_id}: {e}")
+        return None
