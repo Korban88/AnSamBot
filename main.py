@@ -116,7 +116,7 @@ def start_keyboard():
 async def on_startup(_):
     logging.info("⏳ До следующего сигнала: 1167.0 минут")
     scheduler.start()
-    asyncio.create_task(tracker.run())
+    tracker.run()
 
 if __name__ == "__main__":
     keep_alive()
