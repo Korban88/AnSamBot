@@ -1,19 +1,19 @@
 import requests
 import numpy as np
 
-def get_historical_ohlc(coin_id, days=2, vs_currency='usd'):
+def get_historical_ohlc(coin_id, days=30, vs_currency='usd'):
     url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
     params = {
         'vs_currency': vs_currency,
         'days': days,
-        'interval': 'hourly'
+        'interval': 'daily'
     }
     try:
         response = requests.get(url, params=params, timeout=10)
         data = response.json()
-        return data.get('prices', []), data.get('total_volumes', [])
+        return data.get('prices', [])  # [[timestamp, price], ...]
     except:
-        return [], []
+        return []
 
 def moving_average(prices, period=7):
     if len(prices) < period:
@@ -45,7 +45,7 @@ def rsi(prices, period=14):
     return rsi_values[-1]
 
 def analyze_coin(coin_id):
-    prices, volumes = get_historical_ohlc(coin_id)
+    prices = get_historical_ohlc(coin_id)
     if not prices or len(prices) < 20:
         return None
 
@@ -58,48 +58,36 @@ def analyze_coin(coin_id):
     if rsi_value is None:
         return None
 
-    last_price = prices[-1][1]
-    first_price = prices[0][1]
-    change_24h = ((last_price - first_price) / first_price) * 100
+    last_ma7 = ma7[-1]
+    last_ma20 = ma20[-1]
 
-    avg_volume = np.mean([v[1] for v in volumes]) if volumes else 0
-
-    score = 0
-
-    # тренд по скользящим
-    if ma7[-1] > ma20[-1]:
-        score += 1
-    else:
-        score -= 1
+    # Тренд
+    trend_score = 1 if last_ma7 > last_ma20 else -1
 
     # RSI
     if rsi_value < 30:
-        score += 1
+        rsi_score = 1
     elif rsi_value > 70:
-        score -= 1
-
-    # рост за 24ч
-    if change_24h > 0:
-        score += 1
+        rsi_score = -1
     else:
-        score -= 1
+        rsi_score = 0
 
-    # объём торгов
-    if avg_volume > 10_000_000:
-        score += 1
-    elif avg_volume < 1_000_000:
-        score -= 1
+    # Скорость роста за 7 дней
+    growth_rate = (prices[-1][1] - prices[-8][1]) / prices[-8][1] * 100 if len(prices) >= 8 else 0
+    momentum_score = 1 if growth_rate > 3 else (-1 if growth_rate < -3 else 0)
 
-    # Преобразуем score в вероятность
-    probability = 50 + score * 10
+    # Суммарный скор
+    score = trend_score + rsi_score + momentum_score
+
+    # Перевод в вероятность
+    probability = 50 + score * 15
     probability = max(0, min(100, probability))
 
     return {
         'probability': int(probability),
+        'ma7': round(last_ma7, 4),
+        'ma20': round(last_ma20, 4),
         'rsi': round(rsi_value, 2),
-        'ma7': round(ma7[-1], 4),
-        'ma20': round(ma20[-1], 4),
-        'change_24h': round(change_24h, 2),
-        'volume': int(avg_volume),
+        'growth7d': round(growth_rate, 2),
         'score': score
     }
