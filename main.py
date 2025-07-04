@@ -2,7 +2,6 @@ import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils import executor
-from aiogram.dispatcher.filters import Text
 from apscheduler.schedulers.background import BackgroundScheduler
 from signal_generator import generate_signal
 from tracker import CoinTracker
@@ -27,8 +26,9 @@ main_menu.add(
 async def cmd_start(message: types.Message):
     await message.answer("Добро пожаловать в новую жизнь, Корбан!\n\nБот готов выдавать тебе сильнейшие сигналы каждый день в 08:00 по Москве.", reply_markup=main_menu)
 
-@dp.message_handler(Text(equals="📈 Получить ещё сигнал"))
+@dp.message_handler(lambda message: "Получить ещё сигнал" in message.text)
 async def handle_get_signal(message: types.Message):
+    logging.info(f"Получен запрос на сигнал от {message.from_user.id}")
     result = generate_signal()
     if result is None:
         await message.answer("⚠️ Сейчас нет подходящих монет. Но рынок живёт — запроси ещё чуть позже.")
@@ -45,14 +45,13 @@ async def handle_get_signal(message: types.Message):
         f"Тренд: {result['trend']}, 24ч: {result['change_24h']}%"
     )
 
-    # Кнопка отслеживания монеты
     markup = InlineKeyboardMarkup().add(
         InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{result['symbol']}")
     )
 
     await message.answer(text, reply_markup=markup)
 
-@dp.message_handler(Text(equals="🛑 Остановить все отслеживания"))
+@dp.message_handler(lambda message: "Остановить все отслеживания" in message.text)
 async def handle_stop_tracking(message: types.Message):
     tracker.clear_all()
     await message.answer("❌ Все отслеживания остановлены.")
