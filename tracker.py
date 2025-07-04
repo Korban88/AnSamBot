@@ -22,7 +22,7 @@ class CoinTracker:
 
     def run(self):
         self.running = True
-        asyncio.create_task(self._loop())
+        asyncio.get_event_loop().create_task(self._loop())  # ← исправлено здесь
 
     async def _loop(self):
         while True:
