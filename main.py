@@ -5,6 +5,7 @@ from aiogram.utils import executor
 from aiogram.dispatcher.filters import Text
 
 from crypto_utils import get_top_coins
+from tracking import CoinTracker
 from scheduler import schedule_daily_signal
 
 BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
@@ -12,80 +13,116 @@ USER_ID = 347552741
 
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=BOT_TOKEN, parse_mode="Markdown")
+bot = Bot(token=BOT_TOKEN, parse_mode="MarkdownV2")
 dp = Dispatcher(bot)
 
-# Храним индекс текущей монеты, чтобы при нажатии на кнопку показывать следующую
-user_coin_index = {}
+tracker = None
+signal_index = 0
+cached_signals = []
 
 keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-keyboard.add(
-    KeyboardButton("🟢 Старт"),
-    KeyboardButton("🚀 Получить ещё сигнал")
-)
-keyboard.add(
-    KeyboardButton("👁 Следить за монетой"),
-    KeyboardButton("🔴 Остановить все отслеживания")
-)
+keyboard.add(KeyboardButton("🟢 Старт"))
+keyboard.add(KeyboardButton("🚀 Получить ещё сигнал"))
+keyboard.add(KeyboardButton("👁 Следить за монетой"))
+keyboard.add(KeyboardButton("🔴 Остановить все отслеживания"))
 
+def esc(text):
+    return str(text).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("+", "\\+").replace("%", "\\%").replace("$", "\\$").replace("_", "\\_")
 
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
     await message.answer("Добро пожаловать в новую жизнь, Корбан!", reply_markup=keyboard)
 
-
 @dp.message_handler(Text(equals="🟢 Старт"))
 async def activate_bot(message: types.Message):
-    await message.answer("Бот активирован. Ждите сигналы каждый день в 8:00 МСК.")
-
+    await message.answer("Бот активирован\\. Ждите сигналы каждый день в 8\\:00 МСК\\.")
 
 @dp.message_handler(Text(equals="🚀 Получить ещё сигнал"))
-async def send_next_coin(message: types.Message):
-    user_id = message.from_user.id
+async def send_signals(message: types.Message):
+    global signal_index, cached_signals
     logging.info("Нажата кнопка 'Получить ещё сигнал'")
+    await message.answer("⚙️ Обработка сигнала...")
 
-    coins = get_top_coins()
-    if not coins:
-        await message.answer("❌ Не удалось получить сигналы. Попробуйте позже.")
-        return
+    try:
+        if not cached_signals:
+            cached_signals = get_top_coins()
+            signal_index = 0
 
-    if user_id not in user_coin_index:
-        user_coin_index[user_id] = 0
-    index = user_coin_index[user_id]
+        if not cached_signals:
+            await message.answer("Не удалось получить сигналы\\. Попробуйте позже\\.")
+            return
 
-    if index >= len(coins):
-        await message.answer("⚠️ Сигналы на сегодня закончились. Попробуйте позже.")
-        return
+        if signal_index >= len(cached_signals):
+            await message.answer("Сигналы закончились\\. Попробуйте позже или нажмите 🟢 Старт для обновления\\.")
+            return
 
-    coin = coins[index]
-    user_coin_index[user_id] += 1
+        coin = cached_signals[signal_index]
+        signal_index += 1
 
-    text = (
-        f"💰 *Сигнал:*\n"
-        f"Монета: *{coin['id']}*\n"
-        f"Цена: *{coin['price']} $*\n"
-        f"Рост за 24ч: *{coin['change_24h']}%*\n"
-        f"{'🟢' if coin['probability'] >= 70 else '🔴'} Вероятность роста: *{coin['probability']}%*\n"
-        f"🎯 Цель: *{coin['target_price']} $* (+5%)\n"
-        f"⛔️ Стоп-лосс: *{coin['stop_loss_price']} $* (-3.5%)"
-    )
-    await message.answer(text, parse_mode="Markdown")
+        name = coin['id']
+        price = coin['price']
+        change = coin['change_24h']
+        probability = coin['probability']
+        target_price = coin['target_price']
+        stop_loss_price = coin['stop_loss_price']
+        risky = coin.get('risky', False)
 
+        risk_note = "\n⚠️ *Монета имеет повышенный риск!*" if risky else ""
+
+        text = (
+            f"*💰 Сигнал:*\n"
+            f"Монета: *{esc(name)}*\n"
+            f"Цена: *{esc(price)} \\$*\n"
+            f"Рост за 24ч: *{esc(change)}\\%*\n"
+            f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: *{esc(probability)}\\%*\n"
+            f"🎯 Цель: *{esc(target_price)} \\$* \\(\\+5\\%\\)\n"
+            f"⛔️ Стоп\\-лосс: *{esc(stop_loss_price)} \\$* \\(\\-3\\.5\\%\\)"
+            f"{risk_note}"
+        )
+
+        await message.answer(text)
+
+    except Exception as e:
+        logging.error(f"Ошибка при отправке сигнала: {e}")
+        safe_err = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("_", "\\_")
+        await message.answer(f"⚠️ Ошибка: {safe_err}")
 
 @dp.message_handler(Text(equals="👁 Следить за монетой"))
 async def track_coin(message: types.Message):
-    await message.answer("⚙️ Функция отслеживания монет будет активирована позже.")
+    global tracker
+    user_id = message.from_user.id
+    coin_id = "toncoin"
 
+    from pycoingecko import CoinGeckoAPI
+    cg = CoinGeckoAPI()
+    try:
+        price_data = cg.get_price(ids=coin_id, vs_currencies='usd')
+        entry_price = float(price_data[coin_id]["usd"])
+
+        tracker = CoinTracker(bot, user_id)
+        tracker.start_tracking(coin_id, entry_price)
+        tracker.run()
+
+        await message.answer(
+            f"👁 Запущено отслеживание *{coin_id}*\nТекущая цена: *{entry_price} \\$*"
+        )
+
+    except Exception as e:
+        safe_error = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)")
+        await message.answer(f"❌ Ошибка запуска отслеживания: {safe_error}")
 
 @dp.message_handler(Text(equals="🔴 Остановить все отслеживания"))
 async def stop_tracking(message: types.Message):
-    await message.answer("⛔️ Все отслеживания монет остановлены.")
-
+    global tracker
+    if tracker:
+        tracker.stop_all_tracking()
+        await message.answer("⛔️ Все отслеживания монет остановлены.")
+    else:
+        await message.answer("Нечего останавливать.")
 
 async def on_startup(dispatcher):
-    logging.info("Бот запущен и готов.")
     schedule_daily_signal(dispatcher, bot, get_top_coins, user_id=USER_ID)
-
+    logging.info("Бот запущен и готов.")
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
