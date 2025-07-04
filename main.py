@@ -19,7 +19,7 @@ scheduler = AsyncIOScheduler()
 tracker = CoinTracker(bot, USER_ID)
 
 main_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-main_keyboard.add("🟢 Старт", "🚀 Получить ещё сигнал")
+main_keyboard.add("🔵 Старт", "🚀 Получить ещё сигнал")
 main_keyboard.add("🔴 Остановить все отслеживания")
 
 def get_watch_button(symbol):
@@ -28,7 +28,7 @@ def get_watch_button(symbol):
     return inline_kb
 
 @dp.message_handler(commands=['start'])
-@dp.message_handler(lambda message: message.text == "🟢 Старт")
+@dp.message_handler(lambda message: message.text == "🔵 Старт")
 async def start_handler(message: types.Message):
     await message.answer(
         "Бот активирован. Ждите сигналы каждый день в 8:00 МСК.",
@@ -40,9 +40,10 @@ async def manual_signal_handler(message: types.Message):
     result = await generate_signal()
     if result:
         text = (
-            f"💡 *Сигнал на рост: {result['name']}*\n\n"
+            f"💡 *Сигнал на рост: {result['name']}*
+\n"
             f"🔹 Текущая цена: {result['current_price']:.4f} USDT\n"
-            f"🎯 Цель: +5% → {result['target_price']:.4f} USDT\n"
+            f"🌟 Цель: +5% → {result['target_price']:.4f} USDT\n"
             f"⛔️ Стоп-лосс: {result['stop_loss_price']:.4f} USDT\n"
             f"📊 Вероятность роста: *{result['probability']}%*\n"
             f"📈 RSI: {result['rsi']}, MA: {result['ma']}, 24h: {result['change_24h']}%\n"
@@ -67,9 +68,10 @@ async def send_daily_signal():
     result = await generate_signal()
     if result:
         text = (
-            f"💡 *Сигнал на рост: {result['name']}*\n\n"
+            f"💡 *Сигнал на рост: {result['name']}*
+\n"
             f"🔹 Текущая цена: {result['current_price']:.4f} USDT\n"
-            f"🎯 Цель: +5% → {result['target_price']:.4f} USDT\n"
+            f"🌟 Цель: +5% → {result['target_price']:.4f} USDT\n"
             f"⛔️ Стоп-лосс: {result['stop_loss_price']:.4f} USDT\n"
             f"📊 Вероятность роста: *{result['probability']}%*\n"
             f"📈 RSI: {result['rsi']}, MA: {result['ma']}, 24h: {result['change_24h']}%\n"
