@@ -7,6 +7,7 @@ from aiogram.dispatcher.filters import Text
 from crypto_utils import get_top_coins
 from tracking import CoinTracker
 from scheduler import schedule_daily_signal
+from keep_alive import keep_alive
 
 BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 USER_ID = 347552741
@@ -67,6 +68,10 @@ async def send_signals(message: types.Message):
         stop_loss_price = coin['stop_loss_price']
         risky = coin.get('risky', False)
 
+        ma7 = coin["analysis"].get("ma7")
+        ma20 = coin["analysis"].get("ma20")
+        rsi_val = coin["analysis"].get("rsi")
+
         risk_note = "\n⚠️ *Монета имеет повышенный риск!*" if risky else ""
 
         text = (
@@ -74,6 +79,8 @@ async def send_signals(message: types.Message):
             f"Монета: *{esc(name)}*\n"
             f"Цена: *{esc(price)} \\$*\n"
             f"Рост за 24ч: *{esc(change)}\\%*\n"
+            f"RSI: *{esc(rsi_val)}*\n"
+            f"MA7: *{esc(ma7)}*, MA20: *{esc(ma20)}*\n"
             f"{'🟢' if probability >= 70 else '🔴'} Вероятность роста: *{esc(probability)}\\%*\n"
             f"🎯 Цель: *{esc(target_price)} \\$* \\(\\+5\\%\\)\n"
             f"⛔️ Стоп\\-лосс: *{esc(stop_loss_price)} \\$* \\(\\-3\\.5\\%\\)"
@@ -84,7 +91,7 @@ async def send_signals(message: types.Message):
 
     except Exception as e:
         logging.error(f"Ошибка при отправке сигнала: {e}")
-        safe_err = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("_", "\\_")
+        safe_err = esc(str(e))
         await message.answer(f"⚠️ Ошибка: {safe_err}")
 
 @dp.message_handler(Text(equals="👁 Следить за монетой"))
@@ -108,7 +115,7 @@ async def track_coin(message: types.Message):
         )
 
     except Exception as e:
-        safe_error = str(e).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)")
+        safe_error = esc(str(e))
         await message.answer(f"❌ Ошибка запуска отслеживания: {safe_error}")
 
 @dp.message_handler(Text(equals="🔴 Остановить все отслеживания"))
@@ -122,6 +129,7 @@ async def stop_tracking(message: types.Message):
 
 async def on_startup(dispatcher):
     schedule_daily_signal(dispatcher, bot, get_top_coins, user_id=USER_ID)
+    keep_alive()
     logging.info("Бот запущен и готов.")
 
 if __name__ == '__main__':
