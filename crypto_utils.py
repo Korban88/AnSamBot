@@ -1,60 +1,64 @@
 import requests
-import random
-
+import logging
 from ton_tokens import get_ton_wallet_tokens
 
+def fetch_coin_data(coin_ids):
+    url = "https://api.coingecko.com/api/v3/simple/price"
+    params = {
+        "ids": ",".join(coin_ids),
+        "vs_currencies": "usd",
+        "include_24hr_change": "true"
+    }
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logging.error(f"Ошибка при получении данных с CoinGecko: {e}")
+        return {}
 
-def calculate_probability(change_24h, change_7d, volume):
-    if change_24h < -3:
-        return 0
-    score = 50
-    score += min(change_24h, 10) * 1.5
-    score += min(change_7d, 20) * 0.7
-    score += min(volume / 10**6, 100) * 0.03
-    return min(round(score), 95)
-
+def estimate_growth_probability(change_24h, volume):
+    if change_24h > 4 and volume > 10_000_000:
+        return 80
+    if change_24h > 2 and volume > 5_000_000:
+        return 70
+    if change_24h > 0:
+        return 60
+    return 50
 
 def get_top_coins():
-    token_ids = get_ton_wallet_tokens()
-    ids_param = ','.join(token_ids)
+    coin_ids = get_ton_wallet_tokens()
+    logging.info(f"Список монет из ton_tokens: {coin_ids}")
 
-    url = (
-        f"https://api.coingecko.com/api/v3/simple/price"
-        f"?ids={ids_param}&vs_currencies=usd"
-        f"&include_24hr_change=true"
-    )
+    data = fetch_coin_data(coin_ids)
+    if not data:
+        logging.warning("Нет данных от CoinGecko")
+        return []
 
-    response = requests.get(url)
-    data = response.json()
+    coins = []
+    for coin_id in coin_ids:
+        if coin_id in data:
+            price = data[coin_id].get("usd")
+            change_24h = data[coin_id].get("usd_24h_change", 0)
+            volume = 10_000_000  # временно жёстко задан, позже подставим реальные данные
 
-    result = []
-    for token in token_ids:
-        try:
-            price = data[token]["usd"]
-            change_24h = data[token]["usd_24h_change"]
-            change_7d = random.uniform(-10, 20)
-            volume = random.randint(10_000_000, 500_000_000)
+            probability = estimate_growth_probability(change_24h, volume)
 
-            probability = calculate_probability(change_24h, change_7d, volume)
-
-            if probability < 65:
+            if probability < 65 or change_24h < -3:
+                logging.info(f"Монета {coin_id} отфильтрована: change={change_24h}, prob={probability}")
                 continue
 
-            target_price = round(price * 1.05, 6)
-            stop_loss_price = round(price * 0.965, 6)
-
-            result.append({
-                "id": token,
-                "price": round(price, 6),
+            coin = {
+                "id": coin_id,
+                "price": round(price, 4),
                 "change_24h": round(change_24h, 2),
-                "change_7d": round(change_7d, 2),
-                "volume": volume,
                 "probability": probability,
-                "target_price": target_price,
-                "stop_loss_price": stop_loss_price
-            })
-        except Exception:
-            continue
+                "target_price": round(price * 1.05, 4),
+                "stop_loss_price": round(price * 0.965, 4)
+            }
+            coins.append(coin)
+        else:
+            logging.info(f"Нет данных по монете: {coin_id}")
 
-    result.sort(key=lambda x: x["probability"], reverse=True)
-    return result[:3]
+    logging.info(f"Анализ завершён. Подходящих монет: {len(coins)}")
+    return sorted(coins, key=lambda x: x['probability'], reverse=True)[:3]
