@@ -1,6 +1,5 @@
 import requests
 
-# Используется в анализе и генерации сигналов
 def get_top_coins():
     url = "https://api.coingecko.com/api/v3/coins/markets"
     params = {
@@ -18,7 +17,6 @@ def get_top_coins():
         print(f"Ошибка при получении топ-коинов: {e}")
         return []
 
-# Получение текущей цены по символу
 def get_price(symbol):
     try:
         coins = get_top_coins()
