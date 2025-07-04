@@ -1,9 +1,6 @@
 import asyncio
 import time
-from pycoingecko import CoinGeckoAPI
-
-def esc(text):
-    return str(text).replace("-", "\\-").replace(".", "\\.").replace("(", "\\(").replace(")", "\\)").replace("+", "\\+").replace("%", "\\%").replace("$", "\\$").replace("_", "\\_")
+import logging
 
 class CoinTracker:
     def __init__(self, bot, user_id):
@@ -19,13 +16,24 @@ class CoinTracker:
             "notified_3_5": False,
             "notified_5": False,
         }
-        asyncio.create_task(self._loop())
+        logging.info(f"✅ Начато отслеживание {coin_id} по цене {entry_price}")
 
     def stop_all_tracking(self):
+        logging.info("⛔️ Остановлены все отслеживания.")
         self.tracked.clear()
 
+    def run(self):
+        if not self.running:
+            self.running = True
+            asyncio.create_task(self._loop())
+            logging.info("▶️ Цикл отслеживания запущен.")
+
     async def _loop(self):
-        while self.tracked:
+        while True:
+            if not self.tracked:
+                await asyncio.sleep(10)
+                continue
+
             for coin_id in list(self.tracked.keys()):
                 try:
                     price = await self.get_price(coin_id)
@@ -37,34 +45,35 @@ class CoinTracker:
                     if not data["notified_3_5"] and change_percent >= 3.5:
                         await self.bot.send_message(
                             self.user_id,
-                            f"📈 Монета *{esc(coin_id)}* выросла на *+3.5%*!\nТекущая цена: *{esc(price)} \\$*",
-                            parse_mode="MarkdownV2"
+                            f"📈 Монета <b>{coin_id}</b> выросла на <b>+3.5%</b>!\nТекущая цена: <b>{price}$</b>"
                         )
                         data["notified_3_5"] = True
+                        logging.info(f"🔔 {coin_id}: уведомление +3.5% отправлено")
 
                     if not data["notified_5"] and change_percent >= 5:
                         await self.bot.send_message(
                             self.user_id,
-                            f"🚀 Монета *{esc(coin_id)}* достигла цели *+5%*!\nЦена: *{esc(price)} \\$*",
-                            parse_mode="MarkdownV2"
+                            f"🚀 Монета <b>{coin_id}</b> достигла цели <b>+5%</b>!\nЦена: <b>{price}$</b>"
                         )
                         data["notified_5"] = True
+                        logging.info(f"🎯 {coin_id}: достигнута цель +5%")
 
                     if now - data["start"] >= 43200:  # 12 часов
                         if not data["notified_5"]:
                             diff = round(change_percent, 2)
                             await self.bot.send_message(
                                 self.user_id,
-                                f"🕛 12 часов отслеживания *{esc(coin_id)}* завершены\\.\nИзменение за период: *{esc(diff)}\\%*\nЦена: *{esc(price)} \\$*",
-                                parse_mode="MarkdownV2"
+                                f"🕛 12 часов отслеживания {coin_id} завершены.\nИзменение: {diff}%\nЦена: {price}$"
                             )
                         self.tracked.pop(coin_id)
+                        logging.info(f"📤 {coin_id}: отслеживание завершено спустя 12 часов")
 
                 except Exception as e:
-                    print(f"Ошибка при отслеживании {coin_id}: {e}")
+                    logging.error(f"❌ Ошибка при отслеживании {coin_id}: {e}")
             await asyncio.sleep(60)
 
     async def get_price(self, coin_id):
+        from pycoingecko import CoinGeckoAPI
         cg = CoinGeckoAPI()
         data = cg.get_price(ids=coin_id, vs_currencies='usd')
         return float(data[coin_id]["usd"])
