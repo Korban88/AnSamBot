@@ -1,63 +1,75 @@
-import httpx
-import asyncio
 import logging
+import httpx
 from crypto_list import crypto_list
-from crypto_utils import get_current_price
 
-logger = logging.getLogger("analysis")
-
-def split_into_batches(lst, batch_size):
-    for i in range(0, len(lst), batch_size):
-        yield lst[i:i + batch_size]
+logger = logging.getLogger(__name__)
 
 async def analyze_cryptos():
-    url = "https://api.coingecko.com/api/v3/coins/markets"
-    headers = {"accept": "application/json"}
-    params_base = {
-        "vs_currency": "usd",
-        "price_change_percentage": "24h",
-    }
+    try:
+        # Извлекаем только id монет
+        coin_ids = [coin["id"] for coin in crypto_list]
 
-    cryptos_data = []
+        # Разбиваем на чанки по 20 (ограничение Coingecko)
+        chunk_size = 20
+        coin_chunks = [coin_ids[i:i + chunk_size] for i in range(0, len(coin_ids), chunk_size)]
 
-    for batch in split_into_batches(crypto_list, 20):
-        params = params_base.copy()
-        params["ids"] = ",".join(batch)
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, params=params, headers=headers)
-                response.raise_for_status()
-                data = response.json()
-                cryptos_data.extend(data)
-        except Exception as e:
-            logger.warning(f"Ошибка при получении батча данных: {e}")
-        await asyncio.sleep(1.2)  # 🛑 Пауза между батчами
+        all_data = []
 
-    # Фильтрация
-    filtered = []
-    for coin in cryptos_data:
-        price = coin["current_price"]
-        change_24h = coin["price_change_percentage_24h"] or 0
-        volume = coin["total_volume"] or 0
+        for chunk in coin_chunks:
+            ids_param = ",".join(chunk)
+            url = (
+                "https://api.coingecko.com/api/v3/coins/markets"
+                f"?vs_currency=usd&ids={ids_param}&price_change_percentage=24h"
+            )
 
-        if change_24h < -3:
-            continue
-        if volume < 1_000_000:
-            continue
+            response = httpx.get(url)
+            if response.status_code == 429:
+                logger.warning("Analysis: Ошибка при получении данных: 429 Too Many Requests")
+                break
 
-        score = (change_24h * 1.5) + (volume / 10_000_000)
-        growth_probability = round(min(95, max(60, score)), 2)
+            data = response.json()
+            all_data.extend(data)
 
-        target_price = round(price * 1.05, 6)
-        stop_loss = round(price * 0.97, 6)
+        # Фильтруем: исключаем монеты с падением более 3%
+        filtered = [
+            coin for coin in all_data
+            if coin.get("price_change_percentage_24h") is not None and coin["price_change_percentage_24h"] > -3
+        ]
 
-        filtered.append({
-            "name": coin["id"],
-            "price": price,
-            "growth_probability": growth_probability,
-            "target_price": target_price,
-            "stop_loss": stop_loss,
-        })
+        # Оцениваем и сортируем
+        scored = []
+        for coin in filtered:
+            price = coin["current_price"]
+            score = 0
 
-    top3 = sorted(filtered, key=lambda x: x["growth_probability"], reverse=True)[:3]
-    return top3
+            # Чем выше рост за 24ч — тем лучше
+            price_change_24h = coin["price_change_percentage_24h"] or 0
+            score += price_change_24h
+
+            # Дополнительно можно учитывать объем, market cap, волатильность и т.п.
+
+            probability = min(95, max(50, round(score)))  # от 50 до 95%
+
+            target_price = round(price * 1.05, 6)
+            stop_loss = round(price * 0.97, 6)
+
+            scored.append({
+                "name": coin["id"],
+                "price": price,
+                "target_price": target_price,
+                "stop_loss": stop_loss,
+                "growth_probability": probability,
+            })
+
+        # Оставляем только монеты с вероятностью роста от 65%
+        top_coins = sorted(
+            [coin for coin in scored if coin["growth_probability"] >= 65],
+            key=lambda x: x["growth_probability"],
+            reverse=True
+        )
+
+        return top_coins[:3]
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка при анализе монет: {e}")
+        return []
