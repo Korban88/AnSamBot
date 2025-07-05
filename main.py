@@ -42,7 +42,7 @@ async def handle_start_command(message: types.Message):
         "Добро пожаловать в новую жизнь, Корбан!\n\n"
         "Бот готов присылать крипто-сигналы с высоким потенциалом роста."
     )
-    await message.answer(escape_markdown(text), reply_markup=inline_kb)
+    await message.answer(escape_markdown(text), reply_markup=keyboard)
 
 # Кнопка: Получить ещё сигнал
 @dp.message_handler(lambda message: message.text == "📊 Получить ещё сигнал")
