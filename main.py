@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from analysis import analyze_all_coins, get_current_price
 from tracking import CoinTracker
-from crypto_list import crypto_list
+from validated_crypto_list import validated_crypto_list as crypto_list
 
 BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 OWNER_ID = 347552741
