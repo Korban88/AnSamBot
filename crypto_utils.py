@@ -1,20 +1,21 @@
+import asyncio
 import httpx
+import logging
 
-API_URL = "https://api.coingecko.com/api/v3/simple/price"
-
-async def get_current_price(coin_id: str) -> float | None:
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(API_URL, params={"ids": coin_id, "vs_currencies": "usd"})
-            data = response.json()
-            return data.get(coin_id, {}).get("usd")
-    except Exception as e:
-        return None
-
-async def get_all_prices(coin_ids: list[str]) -> dict[str, float]:
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(API_URL, params={"ids": ",".join(coin_ids), "vs_currencies": "usd"})
-            return {coin: response.json().get(coin, {}).get("usd") for coin in coin_ids}
-    except Exception:
-        return {}
+async def get_current_price_batch(coin_ids, vs_currency="usd"):
+    prices = {}
+    chunk_size = 15
+    for i in range(0, len(coin_ids), chunk_size):
+        chunk = coin_ids[i:i+chunk_size]
+        ids = ",".join(chunk)
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies={vs_currency}"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                chunk_prices = response.json()
+                prices.update(chunk_prices)
+        except httpx.HTTPStatusError as e:
+            logging.warning(f"Ошибка при получении данных: {e}")
+        await asyncio.sleep(1.5)  # задержка между запросами
+    return prices
