@@ -1,79 +1,100 @@
 import httpx
-import asyncio
 import logging
-from typing import List, Dict
-from crypto_list import crypto_list
+from statistics import mean
 
 logger = logging.getLogger(__name__)
 
-async def analyze_cryptos() -> List[Dict[str, str]]:
-    analyzed_data = []
-    headers = {"accept": "application/json"}
-    coin_ids = [coin["id"] for coin in crypto_list]
+COINS = [
+    "storj", "uma", "anime", "ssv-network", "civic", "biconomy", "iost", "wax",
+    "yield-guild-games", "bio", "immutable-x", "the-graph", "jito-governance-token",
+    "curve-dao-token", "floki", "ethereum-name-service", "theta-token", "lido-dao",
+    "jasmycoin", "miota", "bittorrent", "aptos", "near", "internet-computer",
+    "ethereum-classic", "ondo-finance", "kaspa", "proof-of-liquidity", "mantle",
+    "maga", "arbitrum", "render-token", "deepbrain-chain", "morpho-network",
+    "starknet", "compound-governance-token", "dydx", "reserve-rights-token",
+    "conflux-token", "neo", "multiversx", "mog-coin", "axie-infinity",
+    "sats-ordinals", "pha", "everipedia", "memecoin", "aevo", "lisk", "dogs-token",
+    "balancer", "illuvium", "scroll", "tensor"
+]
 
-    batch_size = 20
-    for i in range(0, len(coin_ids), batch_size):
-        batch_ids = coin_ids[i:i + batch_size]
-        ids_str = ",".join(batch_ids)
-        url = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids={ids_str}&price_change_percentage=24h"
+BATCH_SIZE = 20
 
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                market_data = response.json()
-        except Exception as e:
-            logger.warning(f"Ошибка при получении батча данных: {e}")
-            continue
+async def fetch_market_data(session, batch):
+    ids = ",".join(batch)
+    url = f"https://api.coingecko.com/api/v3/coins/markets"
+    params = {
+        "vs_currency": "usd",
+        "ids": ids,
+        "price_change_percentage": "24h"
+    }
+    try:
+        response = await session.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPError as e:
+        logger.warning(f"Ошибка при получении батча данных: {e}")
+        return []
 
-        for coin in market_data:
-            try:
-                name = coin["id"].upper()
-                price = coin.get("current_price")
-                change_24h = coin.get("price_change_percentage_24h") or 0
-                volume = coin.get("total_volume") or 0
-                market_cap = coin.get("market_cap") or 0
+def calculate_score(coin):
+    score = 0
 
-                if price is None:
-                    continue
+    # 1. Рост за 24ч
+    change_24h = coin.get("price_change_percentage_24h", 0)
+    if change_24h > 5:
+        score += 2
+    elif change_24h > 2:
+        score += 1
+    elif change_24h < -2:
+        score -= 1
 
-                if any(sub in name.lower() for sub in ["dog", "cat", "meme", "pepe", "elon"]):
-                    continue
-                if price < 0.005 or volume < 100_000 or market_cap < 10_000_000:
-                    continue
-                if change_24h < -3:
-                    continue
+    # 2. Объём торгов
+    volume = coin.get("total_volume", 0)
+    market_cap = coin.get("market_cap", 1)
+    volume_ratio = volume / market_cap if market_cap else 0
+    if volume_ratio > 0.15:
+        score += 2
+    elif volume_ratio > 0.07:
+        score += 1
 
-                score = 0
-                score += min(change_24h / 10, 1) * 0.3 if change_24h > 0 else 0
-                score += min(volume / 10_000_000, 1) * 0.2
-                score += min(market_cap / 1_000_000_000, 1) * 0.2
-                liquidity_ratio = volume / market_cap if market_cap > 0 else 0
-                score += min(liquidity_ratio, 1) * 0.2
-                if change_24h > 3 and volume > 5_000_000:
-                    score += 0.1
+    # 3. Устойчивость: цена выше средней
+    current_price = coin.get("current_price", 0)
+    high_24h = coin.get("high_24h", 0)
+    low_24h = coin.get("low_24h", 0)
+    avg_price = mean([high_24h, low_24h]) if high_24h and low_24h else current_price
+    if current_price > avg_price:
+        score += 1
 
-                probability = round(min(score, 0.99) * 100, 1)
-                if probability < 65:
-                    continue
+    return score
 
-                entry_price = round(price, 6)
-                target_price = round(entry_price * 1.05, 6)
-                stop_loss = round(entry_price * 0.97, 6)
+def score_to_probability(score):
+    if score >= 5:
+        return 80
+    elif score == 4:
+        return 70
+    elif score == 3:
+        return 65
+    elif score == 2:
+        return 60
+    else:
+        return 50
 
-                analyzed_data.append({
-                    "name": name,
-                    "growth_probability": probability,
-                    "price": entry_price,
-                    "target_price": target_price,
-                    "stop_loss": stop_loss
-                })
-            except Exception as ex:
-                logger.warning(f"Ошибка при анализе монеты {coin.get('id')}: {ex}")
-                continue
+async def analyze_cryptos():
+    top_coins = []
+    async with httpx.AsyncClient(timeout=15) as session:
+        for i in range(0, len(COINS), BATCH_SIZE):
+            batch = COINS[i:i + BATCH_SIZE]
+            data = await fetch_market_data(session, batch)
+            for coin in data:
+                score = calculate_score(coin)
+                probability = score_to_probability(score)
+                if probability >= 60:
+                    top_coins.append({
+                        "name": coin["id"],
+                        "price": coin["current_price"],
+                        "target_price": round(coin["current_price"] * 1.05, 4),
+                        "stop_loss": round(coin["current_price"] * 0.97, 4),
+                        "growth_probability": probability
+                    })
 
-        # ✅ Пауза, чтобы не словить 429
-        await asyncio.sleep(1.2)
-
-    analyzed_data.sort(key=lambda x: x["growth_probability"], reverse=True)
-    return analyzed_data[:10]
+    sorted_coins = sorted(top_coins, key=lambda x: x["growth_probability"], reverse=True)
+    return sorted_coins[:3]
