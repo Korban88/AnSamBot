@@ -51,7 +51,7 @@ async def handle_get_signal(message: types.Message):
 
     if not top3_cache or top3_index >= len(top3_cache):
         try:
-            top3_cache = await analyze_cryptos()
+            top3_cache = analyze_cryptos()
             top3_index = 0
             logger.info(f"🎯 Получено монет: {len(top3_cache)}")
         except Exception as e:
