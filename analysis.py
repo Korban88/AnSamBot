@@ -38,13 +38,18 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
                 continue
             if price < 0.005 or volume < 100_000 or market_cap < 10_000_000:
                 continue
-            if change_24h < -3:  # отсекаем падающие монеты
+            if change_24h < -3:  # исключаем падающие
                 continue
 
-            # Примитивный скоринг
+            # Реалистичный скоринг
             score = 0.6
-            if change_24h > 0:
-                score += min(change_24h / 100, 0.2)
+            if 0 < change_24h <= 5:
+                score += 0.05
+            elif 5 < change_24h <= 10:
+                score += 0.1
+            elif change_24h > 10:
+                score += 0.15
+
             if volume > 1_000_000:
                 score += 0.05
             if market_cap > 100_000_000:
@@ -70,5 +75,6 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
             logger.warning(f"Ошибка при анализе монеты {coin.get('id')}: {ex}")
             continue
 
+    # Возвращаем только строго отобранные топ-3
     analyzed_data.sort(key=lambda x: x["growth_probability"], reverse=True)
-    return analyzed_data[:10]
+    return analyzed_data[:3]
