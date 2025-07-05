@@ -1,8 +1,10 @@
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher, executor, types
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.dispatcher.filters import Command
+from aiogram.dispatcher import filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from config import TELEGRAM_TOKEN, OWNER_ID
 from analysis import get_top_3_cryptos
@@ -57,33 +59,33 @@ async def get_signal(message: types.Message):
                 f"🎯 *Цель:* {target:.4f} USD (+5%)\n"
                 f"🛡 *Стоп-лосс:* {stop_loss:.4f} USD (-3%)"
             )
-            await message.answer(msg)
 
-            # Кнопка "Следить за монетой"
-            track_button = InlineKeyboardMarkup().add(
-                InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{crypto['symbol'].lower()}|{entry}")
+            keyboard = InlineKeyboardMarkup().add(
+                InlineKeyboardButton(
+                    text="👁 Следить за монетой",
+                    callback_data=f"track:{crypto['symbol']}:{entry}"
+                )
             )
-            await message.answer(" ", reply_markup=track_button)
+
+            await message.answer(msg, reply_markup=keyboard)
 
     except Exception as e:
         logging.error(f"❌ Ошибка в get_signal: {e}")
         await message.answer("⚠️ Ошибка при получении сигнала.")
 
-@dp.callback_query_handler(lambda c: c.data.startswith("track_"))
-async def process_track_callback(callback_query: CallbackQuery):
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith("track:"))
+async def track_coin_callback(callback_query: types.CallbackQuery):
     try:
-        data = callback_query.data.replace("track_", "").split("|")
-        symbol = data[0]
-        price = float(data[1])
-
-        coin_data = {"symbol": symbol.upper(), "id": symbol.lower()}
-        tracker = CoinTracker(bot, coin_data, price)
+        _, symbol, entry = callback_query.data.split(":")
+        coin_data = {"symbol": symbol, "id": symbol.lower()}
+        tracker = CoinTracker(bot, coin_data, float(entry))
         tracking_manager.add_tracker(tracker)
 
-        await callback_query.answer("Монета добавлена в отслеживание!", show_alert=True)
+        await callback_query.answer(f"Начато отслеживание {symbol}")
+
     except Exception as e:
-        logging.error(f"❌ Ошибка в process_track_callback: {e}")
-        await callback_query.answer("⚠️ Не удалось запустить отслеживание.", show_alert=True)
+        logging.error(f"❌ Ошибка в track_coin_callback: {e}")
+        await callback_query.answer("⚠️ Ошибка при запуске отслеживания.")
 
 @dp.message_handler(lambda message: message.text == "\U0001F6D1 Остановить все отслеживания")
 async def stop_tracking(message: types.Message):
@@ -112,11 +114,15 @@ async def daily_signal():
             f"\U0001F3AF *Цель:* {target:.4f} USD (+5%)\n"
             f"\U0001F6E1 *Стоп-лосс:* {stop_loss:.4f} USD"
         )
-        await bot.send_message(OWNER_ID, msg)
 
-        coin_data = {"symbol": crypto["symbol"], "id": crypto["symbol"].lower()}
-        tracker = CoinTracker(bot, coin_data, entry)
-        tracking_manager.add_tracker(tracker)
+        keyboard = InlineKeyboardMarkup().add(
+            InlineKeyboardButton(
+                text="👁 Следить за монетой",
+                callback_data=f"track:{crypto['symbol']}:{entry}"
+            )
+        )
+
+        await bot.send_message(OWNER_ID, msg, reply_markup=keyboard)
 
     except Exception as e:
         logging.error(f"Ошибка при отправке ежедневного сигнала: {e}")
