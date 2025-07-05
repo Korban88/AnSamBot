@@ -1,16 +1,16 @@
 import httpx
 import logging
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from crypto_list import crypto_list
 from crypto_utils import get_current_price_batch
 
 logger = logging.getLogger(__name__)
 
-
-def analyze_cryptos() -> List[Dict[str, str]]:
+async def analyze_cryptos() -> List[Dict[str, str]]:
     try:
-        prices = get_current_price_batch(crypto_list)
+        prices_raw = await get_current_price_batch(crypto_list)
+        prices = {k: v["usd"] for k, v in prices_raw.items() if "usd" in v}
     except Exception as e:
         logger.warning(f"Ошибка при получении данных: {e}")
         return []
@@ -22,16 +22,14 @@ def analyze_cryptos() -> List[Dict[str, str]]:
             logger.warning(f"Нет цены для {coin} в batch-ответе.")
             continue
 
-        # Реалистичная вероятность роста
-        # Пример простого анализа: волатильность, имя монеты, базовая метрика
         base_score = 0.5
 
         if "dog" in coin or "cat" in coin or "meme" in coin:
-            base_score -= 0.1  # менее надёжные монеты
+            base_score -= 0.1
         if price < 0.01:
-            base_score -= 0.05  # слишком дешёвые могут быть нестабильны
+            base_score -= 0.05
         if price > 1:
-            base_score += 0.05  # более стабильные монеты
+            base_score += 0.05
 
         noise = np.random.normal(0, 0.05)
         probability = np.clip(base_score + noise, 0, 1)
@@ -44,14 +42,12 @@ def analyze_cryptos() -> List[Dict[str, str]]:
         stop_loss = round(entry_price * 0.97, 6)
 
         analyzed_data.append({
-            "coin": coin.upper(),
-            "probability": round(probability * 100, 1),
-            "entry_price": entry_price,
+            "name": coin.upper(),
+            "growth_probability": round(probability * 100, 1),
+            "price": entry_price,
             "target_price": target_price,
             "stop_loss": stop_loss
         })
 
-    # Сортировка по вероятности
-    analyzed_data.sort(key=lambda x: x["probability"], reverse=True)
-
-    return analyzed_data[:10]  # возвращаем максимум 10, остальное фильтруется по кнопке
+    analyzed_data.sort(key=lambda x: x["growth_probability"], reverse=True)
+    return analyzed_data[:10]
