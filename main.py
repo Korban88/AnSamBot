@@ -29,7 +29,7 @@ async def start_cmd(message: types.Message):
         reply_markup=keyboard
     )
 
-@dp.message_handler(lambda message: message.text == "📊 Получить ещё сигнал")
+@dp.message_handler(lambda message: message.text.strip() == "📊 Получить ещё сигнал")
 async def get_signal(message: types.Message):
     if message.from_user.id != OWNER_ID:
         return
@@ -58,12 +58,11 @@ async def get_signal(message: types.Message):
         )
         await message.answer(msg)
 
-        # Запускаем отслеживание
         coin_data = {"symbol": crypto["symbol"], "id": crypto["symbol"].lower()}
         tracker = CoinTracker(bot, coin_data, entry)
         tracking_manager.add_tracker(tracker)
 
-@dp.message_handler(lambda message: message.text == "🛑 Остановить все отслеживания")
+@dp.message_handler(lambda message: message.text.strip() == "🛑 Остановить все отслеживания")
 async def stop_tracking(message: types.Message):
     if message.from_user.id != OWNER_ID:
         return
@@ -98,6 +97,12 @@ async def daily_signal():
 
     except Exception as e:
         logging.error(f"Ошибка при отправке ежедневного сигнала: {e}")
+
+# Отладчик на случай других сообщений
+@dp.message_handler()
+async def unknown_message(message: types.Message):
+    if message.from_user.id == OWNER_ID:
+        await message.reply("Команда не распознана. Используй кнопки ниже.")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
