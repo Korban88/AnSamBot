@@ -1,5 +1,6 @@
 import httpx
 import logging
+import asyncio
 from typing import List, Dict
 from crypto_list import crypto_list
 
@@ -9,18 +10,21 @@ async def fetch_market_data_batch(ids: List[str]) -> List[Dict]:
     all_data = []
     headers = {"accept": "application/json"}
 
-    for i in range(0, len(ids), 20):
-        batch = ids[i:i + 20]
-        ids_str = ",".join(batch)
-        url = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids={ids_str}&price_change_percentage=24h"
+    async with httpx.AsyncClient(timeout=15) as client:
+        for i in range(0, len(ids), 20):
+            batch = ids[i:i + 20]
+            ids_str = ",".join(batch)
+            url = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids={ids_str}&price_change_percentage=24h"
 
-        try:
-            response = await httpx.AsyncClient().get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            all_data.extend(response.json())
-        except Exception as e:
-            logger.warning(f"Ошибка при получении батча данных: {e}")
-            continue
+            try:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                all_data.extend(response.json())
+            except Exception as e:
+                logger.warning(f"Ошибка при получении батча данных: {e}")
+                continue
+
+            await asyncio.sleep(0.3)  # важная пауза между запросами
 
     return all_data
 
@@ -41,7 +45,6 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
             if price is None:
                 continue
 
-            # Базовый фильтр
             if any(sub in name.lower() for sub in ["dog", "cat", "meme", "pepe", "elon"]):
                 continue
             if price < 0.005 or volume < 100_000 or market_cap < 10_000_000:
@@ -49,7 +52,6 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
             if change_24h < -3:
                 continue
 
-            # Жёсткий скоринг
             score = 0.6
             if 0 < change_24h <= 5:
                 score += 0.05
