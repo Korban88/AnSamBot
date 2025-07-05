@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from analysis import analyze_all_coins, get_current_price
 from tracking import CoinTracker
-from data import TELEGRAM_WALLET_COINS
+from crypto_list import crypto_list
 
 BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 OWNER_ID = 347552741
@@ -52,7 +52,7 @@ async def start(message: types.Message):
 async def more_signal(callback_query: types.CallbackQuery):
     await callback_query.answer()
     if not signal_cache["last_signals"]:
-        signals = analyze_all_coins(TELEGRAM_WALLET_COINS)
+        signals = analyze_all_coins(crypto_list)
         strong_signals = [s for s in signals if s["probability"] >= 65 and s["change_pct"] > -3]
         strong_signals.sort(key=lambda x: x["probability"], reverse=True)
         signal_cache["last_signals"] = strong_signals[:3]
@@ -93,7 +93,7 @@ async def stop_tracking(callback_query: types.CallbackQuery):
 
 
 async def daily_signal():
-    signals = analyze_all_coins(TELEGRAM_WALLET_COINS)
+    signals = analyze_all_coins(crypto_list)
     strong_signals = [s for s in signals if s["probability"] >= 65 and s["change_pct"] > -3]
     strong_signals.sort(key=lambda x: x["probability"], reverse=True)
     if strong_signals:
