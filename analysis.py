@@ -1,15 +1,16 @@
 import httpx
 import logging
-from config import CRYPTO_LIST
-from crypto_utils import get_rsi, get_moving_average, get_price_change
+from crypto_list import crypto_list  # ← заменили импорт
+from crypto_utils import get_rsi, get_moving_average
 
 logger = logging.getLogger(__name__)
 
 def analyze_cryptos():
-    crypto_ids = [crypto["id"] for crypto in CRYPTO_LIST]
-    all_data = []
+    crypto_ids = [crypto["id"] for crypto in crypto_list]  # ← тоже заменили имя
 
+    all_data = []
     batch_size = 20
+
     for i in range(0, len(crypto_ids), batch_size):
         batch_ids = crypto_ids[i:i+batch_size]
         url = f"https://api.coingecko.com/api/v3/coins/markets"
