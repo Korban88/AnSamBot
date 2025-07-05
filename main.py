@@ -60,7 +60,7 @@ async def get_signal(message: types.Message):
 
             # Inline кнопка "Следить за монетой"
             inline_kb = InlineKeyboardMarkup().add(
-                InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track:{crypto['id']}:{entry}")
+                InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track:{crypto['symbol'].lower()}:{entry}")
             )
 
             await message.answer(msg, reply_markup=inline_kb)
