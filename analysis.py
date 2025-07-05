@@ -1,39 +1,49 @@
-import random
+import httpx
 import logging
-from crypto_utils import get_all_prices
+from crypto_list import crypto_list
 
-logger = logging.getLogger(__name__)
+COINGECKO_API_URL = "https://api.coingecko.com/api/v3/simple/price"
+log = logging.getLogger("analysis")
 
-def calculate_probability(score: float) -> int:
-    return min(95, max(30, int(score * 100)))
+def fetch_prices():
+    ids = ",".join(crypto['id'] for crypto in crypto_list)
+    params = {"ids": ids, "vs_currencies": "usd"}
+    response = httpx.get(COINGECKO_API_URL, params=params)
 
-def build_signal(coin: str, price: float, score: float) -> dict:
-    target_price = round(price * 1.05, 4)
-    stop_loss = round(price * 0.96, 4)
-    return {
-        "coin": coin,
-        "entry_price": price,
-        "target_price": target_price,
-        "stop_loss": stop_loss,
-        "probability": calculate_probability(score)
-    }
+    if response.status_code != 200:
+        log.warning(f"Ошибка при получении данных: {response.status_code}")
+        return {}
 
-async def get_top_signals() -> list:
-    from crypto_list import crypto_list
-    prices = await get_all_prices(crypto_list)
-    signals = []
+    data = response.json()
+    prices = {}
 
-    for coin in crypto_list:
-        price = prices.get(coin)
-        if not price:
-            logger.warning(f"Нет цены для {coin} в batch-ответе: {price}")
-            continue
+    for crypto in crypto_list:
+        price_info = data.get(crypto["id"])
+        if price_info:
+            prices[crypto["symbol"]] = price_info.get("usd")
+        else:
+            log.warning(f"Нет цены для {crypto['id']} в batch-ответе: {price_info}")
+    return prices
 
-        score = random.uniform(0.6, 0.9)  # здесь позже будет реальный анализ
-        signal = build_signal(coin, price, score)
+def analyze_prices(prices):
+    analyzed = []
+    for crypto in crypto_list:
+        symbol = crypto["symbol"]
+        price = prices.get(symbol)
+        if price:
+            # Временная формула вероятности, позже будет заменена на глубокий анализ
+            score = 0.5 + (1 / price if price < 10 else 0.1)
+            probability = min(round(score * 100, 2), 95.0)
+            analyzed.append({
+                "symbol": symbol.upper(),
+                "price": price,
+                "score": score,
+                "probability": probability
+            })
+    return analyzed
 
-        if signal["probability"] >= 65:
-            signals.append(signal)
-
-    signals.sort(key=lambda x: x["probability"], reverse=True)
-    return signals[:3]
+def get_top_3_cryptos():
+    prices = fetch_prices()
+    analyzed = analyze_prices(prices)
+    top_3 = sorted(analyzed, key=lambda x: x["probability"], reverse=True)[:3]
+    return top_3
