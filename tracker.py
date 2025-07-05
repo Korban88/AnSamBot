@@ -58,4 +58,4 @@ class CoinTracker:
             await asyncio.sleep(600)
 
     def run(self):
-        asyncio.create_task(self._loop())
+        asyncio.run(self._loop())
