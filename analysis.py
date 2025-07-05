@@ -5,22 +5,30 @@ from crypto_list import crypto_list
 
 logger = logging.getLogger(__name__)
 
+async def fetch_market_data_batch(ids: List[str]) -> List[Dict]:
+    all_data = []
+    headers = {"accept": "application/json"}
+
+    for i in range(0, len(ids), 20):
+        batch = ids[i:i + 20]
+        ids_str = ",".join(batch)
+        url = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids={ids_str}&price_change_percentage=24h"
+
+        try:
+            response = await httpx.AsyncClient().get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            all_data.extend(response.json())
+        except Exception as e:
+            logger.warning(f"Ошибка при получении батча данных: {e}")
+            continue
+
+    return all_data
+
 async def analyze_cryptos() -> List[Dict[str, str]]:
     analyzed_data = []
 
-    headers = {"accept": "application/json"}
     coin_ids = [coin["id"] for coin in crypto_list]
-    
-    try:
-        # Получаем данные по рынку
-        ids_str = ",".join(coin_ids)
-        url = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids={ids_str}&price_change_percentage=24h"
-        response = await httpx.AsyncClient().get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        market_data = response.json()
-    except Exception as e:
-        logger.warning(f"Ошибка при получении рыночных данных: {e}")
-        return []
+    market_data = await fetch_market_data_batch(coin_ids)
 
     for coin in market_data:
         try:
@@ -38,10 +46,10 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
                 continue
             if price < 0.005 or volume < 100_000 or market_cap < 10_000_000:
                 continue
-            if change_24h < -3:  # исключаем падающие
+            if change_24h < -3:
                 continue
 
-            # Реалистичный скоринг
+            # Жёсткий скоринг
             score = 0.6
             if 0 < change_24h <= 5:
                 score += 0.05
@@ -75,6 +83,5 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
             logger.warning(f"Ошибка при анализе монеты {coin.get('id')}: {ex}")
             continue
 
-    # Возвращаем только строго отобранные топ-3
     analyzed_data.sort(key=lambda x: x["growth_probability"], reverse=True)
     return analyzed_data[:3]
