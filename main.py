@@ -1,3 +1,5 @@
+# main.py — стабильный + логирование обработки сигнала
+
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher, executor, types
@@ -14,19 +16,13 @@ scheduler = AsyncIOScheduler()
 # Инициализация менеджера отслеживания
 tracking_manager = CoinTrackingManager()
 
-# Временная отладка всех сообщений
-@dp.message_handler()
-async def debug_all_messages(message: types.Message):
-    print(f"👉 Получено сообщение: {repr(message.text)}")
-
-# Команда /start
 @dp.message_handler(commands=["start"])
 async def start_cmd(message: types.Message):
     if message.from_user.id != OWNER_ID:
         return
 
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    buttons = ["📊 Получить ещё сигнал", "🛑 Остановить все отслеживания"]
+    buttons = ["\U0001F4CA Получить ещё сигнал", "\U0001F6D1 Остановить все отслеживания"]
     keyboard.add(*buttons)
 
     await message.answer(
@@ -35,13 +31,16 @@ async def start_cmd(message: types.Message):
         reply_markup=keyboard
     )
 
-# Обработка кнопки "Получить ещё сигнал"
-@dp.message_handler(lambda message: "Получить ещё сигнал" in message.text)
+@dp.message_handler(lambda message: message.text == "\U0001F4CA Получить ещё сигнал")
 async def get_signal(message: types.Message):
     if message.from_user.id != OWNER_ID:
         return
 
+    logging.info("⚡ Обработка сигнала запущена")
+
     top_cryptos = get_top_3_cryptos()
+    logging.info(f"🔍 top_cryptos: {top_cryptos}")
+
     if not top_cryptos:
         await message.answer("❌ Не удалось получить сигналы. Попробуй позже.")
         return
@@ -57,11 +56,11 @@ async def get_signal(message: types.Message):
         stop_loss = entry * 0.97
 
         msg = (
-            f"📈 *Сигнал по монете:* {signal.get('symbol', '-')}\n"
-            f"🎯 *Вероятность роста:* {signal.get('probability', 0)}%\n"
-            f"💰 *Цена входа:* {entry:.4f} USD\n"
-            f"🎯 *Цель:* {target:.4f} USD (+5%)\n"
-            f"🛡 *Стоп-лосс:* {stop_loss:.4f} USD (-3%)"
+            f"\U0001F4C8 *Сигнал по монете:* {signal.get('symbol', '-')}\n"
+            f"\U0001F3AF *Вероятность роста:* {signal.get('probability', 0)}%\n"
+            f"\U0001F4B0 *Цена входа:* {entry:.4f} USD\n"
+            f"\U0001F3AF *Цель:* {target:.4f} USD (+5%)\n"
+            f"\U0001F6E1 *Стоп-лосс:* {stop_loss:.4f} USD (-3%)"
         )
         await message.answer(msg)
 
@@ -70,16 +69,15 @@ async def get_signal(message: types.Message):
         tracker = CoinTracker(bot, coin_data, entry)
         tracking_manager.add_tracker(tracker)
 
-# Обработка кнопки "Остановить все отслеживания"
-@dp.message_handler(lambda message: "Остановить все отслеживания" in message.text)
+@dp.message_handler(lambda message: message.text == "\U0001F6D1 Остановить все отслеживания")
 async def stop_tracking(message: types.Message):
     if message.from_user.id != OWNER_ID:
         return
 
     tracking_manager.trackers.clear()
-    await message.answer("🛑 Все отслеживания остановлены.")
+    await message.answer("\U0001F6D1 Все отслеживания остановлены.")
 
-# Ежедневный сигнал в 8:00
+# Ежедневный сигнал
 async def daily_signal():
     try:
         top_cryptos = get_top_3_cryptos()
@@ -92,11 +90,11 @@ async def daily_signal():
         stop_loss = entry * 0.97
 
         msg = (
-            f"📈 *Сигнал на сегодня:* {crypto['symbol']}\n"
-            f"🎯 *Вероятность:* {crypto['probability']}%\n"
-            f"💰 *Цена входа:* {entry:.4f} USD\n"
-            f"🎯 *Цель:* {target:.4f} USD (+5%)\n"
-            f"🛡 *Стоп-лосс:* {stop_loss:.4f} USD"
+            f"\U0001F4C8 *Сигнал на сегодня:* {crypto['symbol']}\n"
+            f"\U0001F3AF *Вероятность:* {crypto['probability']}%\n"
+            f"\U0001F4B0 *Цена входа:* {entry:.4f} USD\n"
+            f"\U0001F3AF *Цель:* {target:.4f} USD (+5%)\n"
+            f"\U0001F6E1 *Стоп-лосс:* {stop_loss:.4f} USD"
         )
         await bot.send_message(OWNER_ID, msg)
 
