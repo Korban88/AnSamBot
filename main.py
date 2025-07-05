@@ -22,9 +22,14 @@ async def start_cmd(message: types.Message):
     if message.from_user.id != OWNER_ID:
         return
 
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    buttons = ["\U0001F4CA Получить ещё сигнал", "\U0001F6D1 Остановить все отслеживания"]
-    keyboard.add(*buttons)
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
+keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+keyboard.row(
+    KeyboardButton("📊 Получить ещё сигнал"),
+    KeyboardButton("🛑 Остановить все отслеживания"),
+)
+keyboard.add(KeyboardButton("🏁 Старт"))
 
     await message.answer(
         "Добро пожаловать в новую жизнь, Корбан!\n\n"
