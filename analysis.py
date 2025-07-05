@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 
 async def analyze_cryptos() -> List[Dict[str, str]]:
     try:
-        prices_raw = await get_current_price_batch(crypto_list)
+        coin_ids = [coin["id"] for coin in crypto_list]
+        prices_raw = await get_current_price_batch(coin_ids)
         prices = {k: v["usd"] for k, v in prices_raw.items() if "usd" in v}
     except Exception as e:
         logger.warning(f"Ошибка при получении данных: {e}")
