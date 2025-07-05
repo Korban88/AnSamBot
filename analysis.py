@@ -20,7 +20,7 @@ async def analyze_cryptos():
 
     cryptos_data = []
 
-    for batch in split_into_batches(TELEGRAM_WALLET_CRYPTOS, 20):
+    for batch in split_into_batches(crypto_list, 20):
         params = params_base.copy()
         params["ids"] = ",".join(batch)
         try:
