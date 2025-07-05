@@ -1,4 +1,5 @@
 import httpx
+import asyncio
 import logging
 from typing import List, Dict
 from crypto_list import crypto_list
@@ -10,7 +11,6 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
     headers = {"accept": "application/json"}
     coin_ids = [coin["id"] for coin in crypto_list]
 
-    # Разбиваем на батчи по 20, чтобы не вызывать ошибку 429
     batch_size = 20
     for i in range(0, len(coin_ids), batch_size):
         batch_ids = coin_ids[i:i + batch_size]
@@ -18,9 +18,10 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
         url = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids={ids_str}&price_change_percentage=24h"
 
         try:
-            response = await httpx.AsyncClient().get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            market_data = response.json()
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                market_data = response.json()
         except Exception as e:
             logger.warning(f"Ошибка при получении батча данных: {e}")
             continue
@@ -36,7 +37,6 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
                 if price is None:
                     continue
 
-                # Фильтры
                 if any(sub in name.lower() for sub in ["dog", "cat", "meme", "pepe", "elon"]):
                     continue
                 if price < 0.005 or volume < 100_000 or market_cap < 10_000_000:
@@ -44,29 +44,16 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
                 if change_24h < -3:
                     continue
 
-                # Улучшенный скоринг
                 score = 0
-
-                # Изменение цены — до 0.3
-                if change_24h > 0:
-                    score += min(change_24h / 10, 1) * 0.3
-
-                # Объём торгов — до 0.2
+                score += min(change_24h / 10, 1) * 0.3 if change_24h > 0 else 0
                 score += min(volume / 10_000_000, 1) * 0.2
-
-                # Капитализация — до 0.2
                 score += min(market_cap / 1_000_000_000, 1) * 0.2
-
-                # Ликвидность — до 0.2
                 liquidity_ratio = volume / market_cap if market_cap > 0 else 0
                 score += min(liquidity_ratio, 1) * 0.2
-
-                # Бонус за рост и оборот — до 0.1
                 if change_24h > 3 and volume > 5_000_000:
                     score += 0.1
 
                 probability = round(min(score, 0.99) * 100, 1)
-
                 if probability < 65:
                     continue
 
@@ -84,6 +71,9 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
             except Exception as ex:
                 logger.warning(f"Ошибка при анализе монеты {coin.get('id')}: {ex}")
                 continue
+
+        # ✅ Пауза, чтобы не словить 429
+        await asyncio.sleep(1.2)
 
     analyzed_data.sort(key=lambda x: x["growth_probability"], reverse=True)
     return analyzed_data[:10]
