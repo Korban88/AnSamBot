@@ -1,5 +1,6 @@
 import logging
-from types import SimpleNamespace  # ✅ ДОБАВЛЕНО
+import re
+from types import SimpleNamespace
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -12,9 +13,14 @@ from tracking import CoinTracker, CoinTrackingManager
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-bot = Bot(token=TELEGRAM_TOKEN, parse_mode="MarkdownV2")  # ✅ ИСПРАВЛЕНО
+bot = Bot(token=TELEGRAM_TOKEN, parse_mode="MarkdownV2")
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
+
+# Функция экранирования MarkdownV2
+def escape_markdown(text):
+    escape_chars = r"\_*[]()~`>#+-=|{}.!"
+    return re.sub(f"([{re.escape(escape_chars)}])", r"\\\1", text)
 
 # Постоянная клавиатура
 keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -32,11 +38,11 @@ top3_index = 0
 @dp.message_handler(commands=["start"])
 @dp.message_handler(lambda message: message.text == "🏁 Старт")
 async def handle_start_command(message: types.Message):
-    await message.answer(
+    text = (
         "Добро пожаловать в новую жизнь, Корбан!\n\n"
-        "Бот готов присылать крипто-сигналы с высоким потенциалом роста.",
-        reply_markup=keyboard
+        "Бот готов присылать крипто-сигналы с высоким потенциалом роста."
     )
+    await message.answer(escape_markdown(text), reply_markup=keyboard)
 
 # Кнопка: Получить ещё сигнал
 @dp.message_handler(lambda message: message.text == "📊 Получить ещё сигнал")
@@ -65,7 +71,7 @@ async def handle_get_signal(message: types.Message):
     inline_kb = InlineKeyboardMarkup()
     inline_kb.add(InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track:{coin_data['name']}"))
 
-    await message.answer(text, reply_markup=inline_kb)
+    await message.answer(escape_markdown(text), reply_markup=inline_kb)
 
 # Обработка нажатия кнопки следить за монетой
 @dp.callback_query_handler(lambda c: c.data and c.data.startswith("track:"))
@@ -85,11 +91,13 @@ async def handle_stop_tracking(message: types.Message):
 scheduler.add_job(
     handle_get_signal,
     CronTrigger(hour=8, minute=0),
-    args=[SimpleNamespace(text="📊 Получить ещё сигнал", chat=SimpleNamespace(id=USER_ID))],  # ✅ ИСПРАВЛЕНО
+    args=[SimpleNamespace(text="📊 Получить ещё сигнал", chat=SimpleNamespace(id=USER_ID))],
     id="daily_signal"
 )
-tracking_manager = CoinTrackingManager()  # ✅ создаём экземпляр
-scheduler.add_job(tracking_manager.run, IntervalTrigger(minutes=10))  # ✅ передаём метод экземпляра
+
+tracking_manager = CoinTrackingManager()
+scheduler.add_job(tracking_manager.run, IntervalTrigger(minutes=10))
+
 scheduler.start()
 
 if __name__ == '__main__':
