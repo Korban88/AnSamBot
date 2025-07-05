@@ -22,13 +22,13 @@ def escape_markdown(text):
     escape_chars = r"\_*[]()~`>#+-=|{}.!"
     return re.sub(f"([{re.escape(escape_chars)}])", r"\\\1", text)
 
-# Постоянная клавиатура
+# Постоянная клавиатура: 🏁 сверху, остальные ниже
 keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+keyboard.add(KeyboardButton("🏁 Старт"))
 keyboard.row(
     KeyboardButton("📊 Получить ещё сигнал"),
     KeyboardButton("🛑 Остановить все отслеживания"),
 )
-keyboard.add(KeyboardButton("🏁 Старт"))
 
 # Хранилище топ-3 монет для последовательного показа
 top3_cache = []
