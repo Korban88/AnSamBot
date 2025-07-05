@@ -1,43 +1,39 @@
+import random
 import logging
-import requests
-from crypto_list import crypto_list
+from crypto_utils import get_all_prices
 
 logger = logging.getLogger(__name__)
 
-def get_price(coin):
-    try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=usd"
-        response = requests.get(url)
-        return response.json().get(coin, {}).get("usd")
-    except Exception as e:
-        logger.warning(f"Ошибка при получении цены для {coin}: {e}")
-        return None
+def calculate_probability(score: float) -> int:
+    return min(95, max(30, int(score * 100)))
 
-def analyze_coin(coin):
-    price = get_price(coin)
-    if price is None:
-        return None
-
-    # Простейший анализ (для примера): считаем, что монета перспективна, если цена > 0.1
-    score = 1 if price > 0.1 else 0
-    probability = 75 if score == 1 else 40
-
+def build_signal(coin: str, price: float, score: float) -> dict:
+    target_price = round(price * 1.05, 4)
+    stop_loss = round(price * 0.96, 4)
     return {
         "coin": coin,
-        "price": price,
-        "score": score,
-        "probability": probability,
-        "entry": round(price, 4),
-        "target": round(price * 1.05, 4),
-        "stop": round(price * 0.97, 4),
+        "entry_price": price,
+        "target_price": target_price,
+        "stop_loss": stop_loss,
+        "probability": calculate_probability(score)
     }
 
-def get_top_signals():
+async def get_top_signals() -> list:
+    from crypto_list import crypto_list
+    prices = await get_all_prices(crypto_list)
     signals = []
+
     for coin in crypto_list:
-        result = analyze_coin(coin)
-        if result and result["probability"] >= 65:
-            signals.append(result)
+        price = prices.get(coin)
+        if not price:
+            logger.warning(f"Нет цены для {coin} в batch-ответе: {price}")
+            continue
+
+        score = random.uniform(0.6, 0.9)  # здесь позже будет реальный анализ
+        signal = build_signal(coin, price, score)
+
+        if signal["probability"] >= 65:
+            signals.append(signal)
 
     signals.sort(key=lambda x: x["probability"], reverse=True)
-    return signals[:3]  # топ-3 сигнала
+    return signals[:3]
