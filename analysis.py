@@ -1,7 +1,7 @@
 import httpx
 import asyncio
 import logging
-from crypto_list import TELEGRAM_WALLET_CRYPTOS
+from crypto_list import crypto_list
 from crypto_utils import get_current_price
 
 logger = logging.getLogger("analysis")
