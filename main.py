@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=BOT_TOKEN, parse_mode="MarkdownV2")
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
-tracker = CoinTracker(bot)
+tracker = CoinTracker(bot, OWNER_ID)
 
 signal_cache = {
     "last_signals": [],
