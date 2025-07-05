@@ -88,7 +88,8 @@ scheduler.add_job(
     args=[SimpleNamespace(text="📊 Получить ещё сигнал", chat=SimpleNamespace(id=USER_ID))],  # ✅ ИСПРАВЛЕНО
     id="daily_signal"
 )
-scheduler.add_job(CoinTrackingManager.run, IntervalTrigger(minutes=10))
+tracking_manager = CoinTrackingManager()  # ✅ создаём экземпляр
+scheduler.add_job(tracking_manager.run, IntervalTrigger(minutes=10))  # ✅ передаём метод экземпляра
 scheduler.start()
 
 if __name__ == '__main__':
