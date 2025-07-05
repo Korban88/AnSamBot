@@ -1,13 +1,13 @@
 import logging
-import asyncio
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, executor
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.utils import executor
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-from analysis import analyze_all_coins, get_current_price
+from crypto_list import crypto_list
+from analysis import get_top_signals
 from tracking import CoinTracker
-from validated_crypto_list import validated_crypto_list as crypto_list
+import asyncio
+import os
+import re
 
 BOT_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 OWNER_ID = 347552741
@@ -18,99 +18,99 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=BOT_TOKEN, parse_mode="MarkdownV2")
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
+
+# Хранилище для состояния топ-3
+top_signals_cache = []
+current_signal_index = 0
+
+# Экземпляр трекера
 tracker = CoinTracker(bot, OWNER_ID)
 
-signal_cache = {
-    "last_signals": [],
-    "index": 0
-}
-
-def escape_price(p):
-    return str(p).replace('.', '\\.')
+# Экранируем символы для MarkdownV2
+def escape_markdown(text):
+    escape_chars = r"_\*\[\]\(\)~`>#+\-=|{}.!"
+    return re.sub(f"([{re.escape(escape_chars)}])", r"\\\\\1", text)
 
 def get_signal_message(signal):
+    name = escape_markdown(signal['name'])
+    price = signal['price']
+    target = signal['target_price']
+    stop = signal['stop_loss']
+    prob = signal['probability']
+    reason = escape_markdown(signal['reason'])
+
     return (
-        f"*Монета:* `{signal['coin_id']}`\n"
-        f"*Вход:* \\${escape_price(signal['start_price'])}\n"
-        f"*Цель \\+5\\%:* \\${escape_price(round(signal['start_price'] * 1.05, 4))}\n"
-        f"*Стоп\\-лосс \\-3\\%:* \\${escape_price(round(signal['start_price'] * 0.97, 4))}\n"
-        f"*Вероятность роста:* *{signal['probability']}\\%*\n"
-        f"_Изменение за 24ч: {signal['change_pct']}\\%_"
+        f"*Сигнал на рост:* `{name}`\n"
+        f"Текущая цена: *{price}*\n"
+        f"Цель: *{target}*  (+5\%)\n"
+        f"Стоп\-лосс: *{stop}*\n"
+        f"Вероятность роста: *{prob}\%*\n"
+        f"Причина: {reason}"
     )
 
+def get_signal_keyboard(coin_name):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton("🔍 Следить за монетой", callback_data=f"track:{coin_name}")]
+    ])
 
 @dp.message_handler(commands=['start'])
-async def start(message: types.Message):
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(
-        InlineKeyboardButton("🚀 Получить ещё сигнал", callback_data="more_signal"),
-        InlineKeyboardButton("🛑 Остановить все отслеживания", callback_data="stop_tracking")
+async def start_cmd(message: types.Message):
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add("\U0001F680 Получить ещё сигнал")
+    keyboard.add("🛑 Остановить все отслеживания")
+    await message.answer("Добро пожаловать в новую жизнь, Корбан!\n\nБот готов к работе.", reply_markup=keyboard)
+
+@dp.message_handler(lambda m: m.text == "🛑 Остановить все отслеживания")
+async def stop_tracking(message: types.Message):
+    await tracker.stop_all_tracking()
+    await message.answer("Все отслеживания остановлены.")
+
+@dp.message_handler(lambda m: m.text == "🚀 Получить ещё сигнал")
+async def more_signal(message: types.Message):
+    global current_signal_index
+    global top_signals_cache
+
+    if not top_signals_cache:
+        top_signals_cache = await get_top_signals(crypto_list)
+        current_signal_index = 0
+
+    if not top_signals_cache:
+        await message.answer("Нет подходящих монет сейчас. Попробуй позже.")
+        return
+
+    if current_signal_index >= len(top_signals_cache):
+        current_signal_index = 0
+
+    signal = top_signals_cache[current_signal_index]
+    current_signal_index += 1
+
+    await bot.send_message(
+        message.chat.id,
+        get_signal_message(signal),
+        reply_markup=get_signal_keyboard(signal['name'])
     )
-    await message.answer("Добро пожаловать в новую жизнь, Корбан\\!\n\nБот готов к работе\\.", reply_markup=keyboard)
 
-
-@dp.callback_query_handler(lambda c: c.data == 'more_signal')
-async def more_signal(callback_query: types.CallbackQuery):
-    await callback_query.answer()
-    if not signal_cache["last_signals"]:
-        signals = analyze_all_coins(crypto_list)
-        strong_signals = [s for s in signals if s["probability"] >= 65]
-        strong_signals.sort(key=lambda x: x["probability"], reverse=True)
-        signal_cache["last_signals"] = strong_signals[:3]
-        signal_cache["index"] = 0
-
-    if signal_cache["last_signals"]:
-        index = signal_cache["index"] % len(signal_cache["last_signals"])
-        signal = signal_cache["last_signals"][index]
-        signal_cache["index"] += 1
-
-        keyboard = InlineKeyboardMarkup()
-        keyboard.add(
-            InlineKeyboardButton("Следить за монетой", callback_data=f"track_{signal['coin_id']}")
-        )
-
-        await bot.send_message(callback_query.from_user.id, get_signal_message(signal), reply_markup=keyboard)
-    else:
-        await bot.send_message(callback_query.from_user.id, "Нет подходящих сигналов на данный момент.")
-
-
-@dp.callback_query_handler(lambda c: c.data.startswith("track_"))
+@dp.callback_query_handler(lambda c: c.data.startswith('track:'))
 async def track_coin(callback_query: types.CallbackQuery):
-    await callback_query.answer()
-    coin_id = callback_query.data.split("_", 1)[1]
-    price = get_current_price(coin_id)
-    if price:
-        tracker.track_coin(callback_query.from_user.id, coin_id, price)
-        await bot.send_message(callback_query.from_user.id, f"🔍 Начато отслеживание `{coin_id}` от \\${escape_price(price)}")
-    else:
-        await bot.send_message(callback_query.from_user.id, "Не удалось получить цену монеты.")
-
-
-@dp.callback_query_handler(lambda c: c.data == "stop_tracking")
-async def stop_tracking(callback_query: types.CallbackQuery):
-    await callback_query.answer()
-    tracker.stop_all_tracking(callback_query.from_user.id)
-    await bot.send_message(callback_query.from_user.id, "⛔ Все отслеживания остановлены.")
-
+    coin = callback_query.data.split(':')[1]
+    await tracker.track_coin(coin)
+    await bot.answer_callback_query(callback_query.id, text=f"Отслеживаю {coin} на +3.5\% и +5\%")
 
 async def daily_signal():
-    signals = analyze_all_coins(crypto_list)
-    strong_signals = [s for s in signals if s["probability"] >= 65]
-    strong_signals.sort(key=lambda x: x["probability"], reverse=True)
-    if strong_signals:
-        signal = strong_signals[0]
-        keyboard = InlineKeyboardMarkup()
-        keyboard.add(
-            InlineKeyboardButton("Следить за монетой", callback_data=f"track_{signal['coin_id']}")
+    top = await get_top_signals(crypto_list)
+    if top:
+        signal = top[0]
+        await bot.send_message(
+            OWNER_ID,
+            get_signal_message(signal),
+            reply_markup=get_signal_keyboard(signal['name'])
         )
-        await bot.send_message(OWNER_ID, get_signal_message(signal), reply_markup=keyboard)
-    else:
-        await bot.send_message(OWNER_ID, "Нет сильных монет для сигнала сегодня.")
 
+# Планировщик ежедневного сигнала и отслеживания
+scheduler.add_job(daily_signal, 'cron', hour=8, minute=0)
+scheduler.add_job(tracker.run, 'interval', minutes=10)
+scheduler.start()
 
 if __name__ == '__main__':
-    scheduler.add_job(daily_signal, 'cron', hour=8, minute=0)
-    scheduler.add_job(tracker.run, 'interval', minutes=10)
-    scheduler.start()
-    logger.info("✅ Бот готов к работе.")
-    executor.start_polling(dp)
+    logger.info("\u2705 Бот готов к работе.")
+    executor.start_polling(dp, skip_updates=True)
