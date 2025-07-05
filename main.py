@@ -1,4 +1,5 @@
 import logging
+from types import SimpleNamespace  # ✅ ДОБАВЛЕНО
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -11,7 +12,7 @@ from tracking import CoinTracker, CoinTrackingManager
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-bot = Bot(token=TELEGRAM_TOKEN, parse_mode="Markdown")
+bot = Bot(token=TELEGRAM_TOKEN, parse_mode="MarkdownV2")  # ✅ ИСПРАВЛЕНО
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
 
@@ -81,7 +82,12 @@ async def handle_stop_tracking(message: types.Message):
     await message.answer("🔕 Все отслеживания остановлены.")
 
 # Планировщик задач
-scheduler.add_job(handle_get_signal, CronTrigger(hour=8, minute=0), args=[types.SimpleNamespace(text="📊 Получить ещё сигнал", chat=types.SimpleNamespace(id=USER_ID))], id="daily_signal")
+scheduler.add_job(
+    handle_get_signal,
+    CronTrigger(hour=8, minute=0),
+    args=[SimpleNamespace(text="📊 Получить ещё сигнал", chat=SimpleNamespace(id=USER_ID))],  # ✅ ИСПРАВЛЕНО
+    id="daily_signal"
+)
 scheduler.add_job(CoinTrackingManager.run, IntervalTrigger(minutes=10))
 scheduler.start()
 
