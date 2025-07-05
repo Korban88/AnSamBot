@@ -25,13 +25,15 @@ signal_cache = {
     "index": 0
 }
 
+def escape_price(p):
+    return str(p).replace('.', '\\.')
 
 def get_signal_message(signal):
     return (
         f"*Монета:* `{signal['coin_id']}`\n"
-        f"*Вход:* \\${signal['start_price']}\n"
-        f"*Цель \\+5\\%:* \\${round(signal['start_price'] * 1.05, 4)}\n"
-        f"*Стоп\\-лосс \\-3\\%:* \\${round(signal['start_price'] * 0.97, 4)}\n"
+        f"*Вход:* \\${escape_price(signal['start_price'])}\n"
+        f"*Цель \\+5\\%:* \\${escape_price(round(signal['start_price'] * 1.05, 4))}\n"
+        f"*Стоп\\-лосс \\-3\\%:* \\${escape_price(round(signal['start_price'] * 0.97, 4))}\n"
         f"*Вероятность роста:* *{signal['probability']}\\%*\n"
         f"_Изменение за 24ч: {signal['change_pct']}\\%_"
     )
@@ -79,7 +81,7 @@ async def track_coin(callback_query: types.CallbackQuery):
     price = get_current_price(coin_id)
     if price:
         tracker.track_coin(callback_query.from_user.id, coin_id, price)
-        await bot.send_message(callback_query.from_user.id, f"🔍 Начато отслеживание `{coin_id}` от \\${price}")
+        await bot.send_message(callback_query.from_user.id, f"🔍 Начато отслеживание `{coin_id}` от \\${escape_price(price)}")
     else:
         await bot.send_message(callback_query.from_user.id, "Не удалось получить цену монеты.")
 
