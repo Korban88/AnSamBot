@@ -1,75 +1,84 @@
-import logging
 import httpx
-from crypto_list import crypto_list
+import logging
+from config import CRYPTO_LIST
+from crypto_utils import get_rsi, get_moving_average, get_price_change
 
 logger = logging.getLogger(__name__)
 
-async def analyze_cryptos():
-    try:
-        # Извлекаем только id монет
-        coin_ids = [coin["id"] for coin in crypto_list]
+def analyze_cryptos():
+    crypto_ids = [crypto["id"] for crypto in CRYPTO_LIST]
+    all_data = []
 
-        # Разбиваем на чанки по 20 (ограничение Coingecko)
-        chunk_size = 20
-        coin_chunks = [coin_ids[i:i + chunk_size] for i in range(0, len(coin_ids), chunk_size)]
+    batch_size = 20
+    for i in range(0, len(crypto_ids), batch_size):
+        batch_ids = crypto_ids[i:i+batch_size]
+        url = f"https://api.coingecko.com/api/v3/coins/markets"
+        params = {
+            "vs_currency": "usd",
+            "ids": ",".join(batch_ids),
+            "price_change_percentage": "24h"
+        }
 
-        all_data = []
-
-        for chunk in coin_chunks:
-            ids_param = ",".join(chunk)
-            url = (
-                "https://api.coingecko.com/api/v3/coins/markets"
-                f"?vs_currency=usd&ids={ids_param}&price_change_percentage=24h"
-            )
-
-            response = httpx.get(url)
-            if response.status_code == 429:
-                logger.warning("Analysis: Ошибка при получении данных: 429 Too Many Requests")
-                break
-
+        try:
+            response = httpx.get(url, params=params)
+            response.raise_for_status()
             data = response.json()
+            logger.info(f"✅ Получено монет в партии: {len(data)}")
             all_data.extend(data)
+        except httpx.HTTPError as e:
+            logger.error(f"❌ Ошибка запроса CoinGecko: {e}")
+            continue
 
-        # Фильтруем: исключаем монеты с падением более 3%
-        filtered = [
-            coin for coin in all_data
-            if coin.get("price_change_percentage_24h") is not None and coin["price_change_percentage_24h"] > -3
-        ]
+    logger.info(f"📊 Всего монет получено: {len(all_data)}")
 
-        # Оцениваем и сортируем
-        scored = []
-        for coin in filtered:
-            price = coin["current_price"]
-            score = 0
+    analyzed = []
 
-            # Чем выше рост за 24ч — тем лучше
-            price_change_24h = coin["price_change_percentage_24h"] or 0
-            score += price_change_24h
+    for coin in all_data:
+        try:
+            rsi = get_rsi(coin["id"])
+            ma = get_moving_average(coin["id"])
+            price_change_24h = coin.get("price_change_percentage_24h_in_currency", 0.0)
+            current_price = coin["current_price"]
 
-            # Дополнительно можно учитывать объем, market cap, волатильность и т.п.
+            trend_score = 0
+            explanation = []
 
-            probability = min(95, max(50, round(score)))  # от 50 до 95%
+            if price_change_24h > 0:
+                trend_score += price_change_24h / 2
+                explanation.append(f"Рост за 24ч: {price_change_24h:.2f}%")
 
-            target_price = round(price * 1.05, 6)
-            stop_loss = round(price * 0.97, 6)
+            if rsi and 45 < rsi < 70:
+                trend_score += 10
+                explanation.append(f"RSI: {rsi:.1f} (нормальный)")
 
-            scored.append({
-                "name": coin["id"],
-                "price": price,
-                "target_price": target_price,
-                "stop_loss": stop_loss,
-                "growth_probability": probability,
-            })
+            if ma and current_price > ma:
+                trend_score += 7
+                explanation.append(f"Цена выше MA ({ma:.2f})")
 
-        # Оставляем только монеты с вероятностью роста от 65%
-        top_coins = sorted(
-            [coin for coin in scored if coin["growth_probability"] >= 65],
-            key=lambda x: x["growth_probability"],
-            reverse=True
-        )
+            if current_price < ma:
+                explanation.append(f"Цена ниже MA ({ma:.2f})")
 
-        return top_coins[:3]
+            probability = min(round(50 + trend_score, 2), 95)
 
-    except Exception as e:
-        logger.error(f"❌ Ошибка при анализе монет: {e}")
-        return []
+            if probability >= 65 and price_change_24h > -3:
+                analyzed.append({
+                    "id": coin["id"],
+                    "symbol": coin["symbol"],
+                    "name": coin["name"],
+                    "price": current_price,
+                    "price_change_24h": price_change_24h,
+                    "rsi": rsi,
+                    "ma": ma,
+                    "probability": probability,
+                    "explanation": explanation
+                })
+
+        except Exception as e:
+            logger.error(f"⚠️ Ошибка при анализе {coin['id']}: {e}")
+
+    logger.info(f"🎯 Монет после фильтрации: {len(analyzed)}")
+
+    top_3 = sorted(analyzed, key=lambda x: x["probability"], reverse=True)[:3]
+    logger.info(f"🏆 Отобрано top-3 монет: {[x['symbol'] for x in top_3]}")
+
+    return top_3
