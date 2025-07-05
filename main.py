@@ -31,43 +31,42 @@ async def start_cmd(message: types.Message):
         reply_markup=keyboard
     )
 
-@dp.message_handler(lambda message: message.text == "\U0001F4CA Получить ещё сигнал")
+@dp.message_handler(lambda message: message.text == "📊 Получить ещё сигнал")
 async def get_signal(message: types.Message):
     if message.from_user.id != OWNER_ID:
         return
 
     logging.info("⚡ Обработка сигнала запущена")
 
-    top_cryptos = get_top_3_cryptos()
-    logging.info(f"🔍 top_cryptos: {top_cryptos}")
+    try:
+        top_cryptos = get_top_3_cryptos()
+        if not top_cryptos:
+            logging.warning("❌ Топ-3 монет не найден")
+            await message.answer("❌ Не удалось получить сигналы. Попробуй позже.")
+            return
 
-    if not top_cryptos:
-        await message.answer("❌ Не удалось получить сигналы. Попробуй позже.")
-        return
+        for crypto in top_cryptos:
+            logging.info(f"🔹 Сигнал: {crypto['symbol']} — {crypto['probability']}% — {crypto['price']} USD")
+            entry = crypto["price"]
+            target = entry * 1.05
+            stop_loss = entry * 0.97
 
-    for crypto in top_cryptos:
-        signal = {
-            "symbol": crypto["symbol"],
-            "price": crypto["price"],
-            "probability": crypto["probability"],
-        }
-        entry = signal["price"]
-        target = entry * 1.05
-        stop_loss = entry * 0.97
+            msg = (
+                f"📈 *Сигнал по монете:* {crypto['symbol']}\n"
+                f"🎯 *Вероятность роста:* {crypto['probability']}%\n"
+                f"💰 *Цена входа:* {entry:.4f} USD\n"
+                f"🎯 *Цель:* {target:.4f} USD (+5%)\n"
+                f"🛡 *Стоп-лосс:* {stop_loss:.4f} USD (-3%)"
+            )
+            await message.answer(msg)
 
-        msg = (
-            f"\U0001F4C8 *Сигнал по монете:* {signal.get('symbol', '-')}\n"
-            f"\U0001F3AF *Вероятность роста:* {signal.get('probability', 0)}%\n"
-            f"\U0001F4B0 *Цена входа:* {entry:.4f} USD\n"
-            f"\U0001F3AF *Цель:* {target:.4f} USD (+5%)\n"
-            f"\U0001F6E1 *Стоп-лосс:* {stop_loss:.4f} USD (-3%)"
-        )
-        await message.answer(msg)
+            coin_data = {"symbol": crypto["symbol"], "id": crypto["symbol"].lower()}
+            tracker = CoinTracker(bot, coin_data, entry)
+            tracking_manager.add_tracker(tracker)
 
-        # Запускаем отслеживание
-        coin_data = {"symbol": crypto["symbol"], "id": crypto["symbol"].lower()}
-        tracker = CoinTracker(bot, coin_data, entry)
-        tracking_manager.add_tracker(tracker)
+    except Exception as e:
+        logging.error(f"❌ Ошибка в get_signal: {e}")
+        await message.answer("⚠️ Ошибка при получении сигнала.")
 
 @dp.message_handler(lambda message: message.text == "\U0001F6D1 Остановить все отслеживания")
 async def stop_tracking(message: types.Message):
