@@ -1,6 +1,5 @@
 import logging
 import re
-from types import SimpleNamespace
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -73,6 +72,34 @@ async def handle_get_signal(message: types.Message):
 
     await message.answer(escape_markdown(text), reply_markup=inline_kb)
 
+# Отправка сигнала в 8:00 по расписанию (не через message)
+async def handle_scheduled_signal():
+    global top3_cache, top3_index
+    logger.info("⚡ Обработка сигнала (по расписанию)")
+    if not top3_cache or top3_index >= len(top3_cache):
+        top3_cache = await analyze_cryptos()
+        top3_index = 0
+
+    if not top3_cache:
+        await bot.send_message(USER_ID, "❌ Топ-3 монет не найден")
+        return
+
+    coin_data = top3_cache[top3_index]
+    top3_index += 1
+
+    text = (
+        f"📈 *Сигнал по монете: {coin_data['name'].upper()}*\n"
+        f"🔮 Вероятность роста: *{coin_data['growth_probability']}%*\n"
+        f"🎯 Цена входа: {coin_data['price']} USD\n"
+        f"🎯 Цель: {coin_data['target_price']} USD (+5%)\n"
+        f"🛡️ Стоп-лосс: {coin_data['stop_loss']} USD (-3%)"
+    )
+
+    inline_kb = InlineKeyboardMarkup()
+    inline_kb.add(InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track:{coin_data['name']}"))
+
+    await bot.send_message(USER_ID, escape_markdown(text), reply_markup=inline_kb)
+
 # Обработка нажатия кнопки следить за монетой
 @dp.callback_query_handler(lambda c: c.data and c.data.startswith("track:"))
 async def process_tracking_callback(callback_query: types.CallbackQuery):
@@ -89,9 +116,8 @@ async def handle_stop_tracking(message: types.Message):
 
 # Планировщик задач
 scheduler.add_job(
-    handle_get_signal,
+    handle_scheduled_signal,
     CronTrigger(hour=8, minute=0),
-    args=[SimpleNamespace(text="📊 Получить ещё сигнал", chat=SimpleNamespace(id=USER_ID))],
     id="daily_signal"
 )
 
