@@ -1,79 +1,41 @@
 import asyncio
-import time
 import logging
+from crypto_utils import get_current_price
+from config import TELEGRAM_ID
+from aiogram import Bot
+
+logger = logging.getLogger(__name__)
 
 class CoinTracker:
-    def __init__(self, bot, user_id):
+    def __init__(self, bot: Bot):
         self.bot = bot
-        self.user_id = user_id
         self.tracked = {}
-        self.running = False
 
-    def start_tracking(self, coin_id, entry_price):
-        self.tracked[coin_id] = {
-            "entry": entry_price,
-            "start": time.time(),
-            "notified_3_5": False,
-            "notified_5": False,
-        }
-        logging.info(f"✅ Начато отслеживание {coin_id} по цене {entry_price}")
-
-    def stop_all_tracking(self):
-        logging.info("⛔️ Остановлены все отслеживания.")
-        self.tracked.clear()
-
-    def run(self):
-        if not self.running:
-            self.running = True
-            asyncio.create_task(self._loop())
-            logging.info("▶️ Цикл отслеживания запущен.")
+    def track_coin(self, coin: str, price: float):
+        self.tracked[coin] = {"start_price": price, "start_time": asyncio.get_event_loop().time()}
 
     async def _loop(self):
         while True:
-            if not self.tracked:
-                await asyncio.sleep(10)
-                continue
+            for coin, info in list(self.tracked.items()):
+                current_price = await get_current_price(coin)
+                if not current_price:
+                    continue
 
-            for coin_id in list(self.tracked.keys()):
-                try:
-                    price = await self.get_price(coin_id)
-                    data = self.tracked[coin_id]
-                    entry = data["entry"]
-                    now = time.time()
-                    change_percent = (price - entry) / entry * 100
+                start_price = info["start_price"]
+                percent_change = (current_price - start_price) / start_price * 100
 
-                    if not data["notified_3_5"] and change_percent >= 3.5:
-                        await self.bot.send_message(
-                            self.user_id,
-                            f"📈 Монета <b>{coin_id}</b> выросла на <b>+3.5%</b>!\nТекущая цена: <b>{price}$</b>"
-                        )
-                        data["notified_3_5"] = True
-                        logging.info(f"🔔 {coin_id}: уведомление +3.5% отправлено")
+                if percent_change >= 5:
+                    await self.bot.send_message(TELEGRAM_ID, f"{coin.upper()} достигла цели +5%!")
+                    del self.tracked[coin]
+                elif percent_change >= 3.5 and not info.get("notified"):
+                    await self.bot.send_message(TELEGRAM_ID, f"{coin.upper()} выросла на +3.5%")
+                    self.tracked[coin]["notified"] = True
+                elif asyncio.get_event_loop().time() - info["start_time"] > 43200:  # 12 часов
+                    await self.bot.send_message(TELEGRAM_ID, f"{coin.upper()}: прошло 12ч, изменение: {percent_change:.2f}%")
+                    del self.tracked[coin]
 
-                    if not data["notified_5"] and change_percent >= 5:
-                        await self.bot.send_message(
-                            self.user_id,
-                            f"🚀 Монета <b>{coin_id}</b> достигла цели <b>+5%</b>!\nЦена: <b>{price}$</b>"
-                        )
-                        data["notified_5"] = True
-                        logging.info(f"🎯 {coin_id}: достигнута цель +5%")
+            await asyncio.sleep(600)
 
-                    if now - data["start"] >= 43200:  # 12 часов
-                        if not data["notified_5"]:
-                            diff = round(change_percent, 2)
-                            await self.bot.send_message(
-                                self.user_id,
-                                f"🕛 12 часов отслеживания {coin_id} завершены.\nИзменение: {diff}%\nЦена: {price}$"
-                            )
-                        self.tracked.pop(coin_id)
-                        logging.info(f"📤 {coin_id}: отслеживание завершено спустя 12 часов")
-
-                except Exception as e:
-                    logging.error(f"❌ Ошибка при отслеживании {coin_id}: {e}")
-            await asyncio.sleep(60)
-
-    async def get_price(self, coin_id):
-        from pycoingecko import CoinGeckoAPI
-        cg = CoinGeckoAPI()
-        data = cg.get_price(ids=coin_id, vs_currencies='usd')
-        return float(data[coin_id]["usd"])
+    def run(self):
+        loop = asyncio.get_event_loop()
+        loop.create_task(self._loop())
