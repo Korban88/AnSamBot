@@ -1,40 +1,39 @@
 import httpx
 import logging
-import asyncio
+import random
 
-# Для tracking.py — отслеживание одной монеты
-async def get_current_price(coin_id, vs_currency="usd"):
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies={vs_currency}"
+logger = logging.getLogger(__name__)
+
+def get_rsi(coin_id):
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            data = response.json()
-            return data.get(coin_id, {}).get(vs_currency)
+        # Тут ты можешь подключить настоящий источник RSI.
+        # Временная псевдореализация:
+        value = round(random.uniform(40, 75), 2)
+        logger.debug(f"📈 RSI для {coin_id}: {value}")
+        return value
     except Exception as e:
-        logging.warning(f"Ошибка при получении цены для {coin_id}: {e}")
+        logger.error(f"⚠️ Ошибка при получении RSI для {coin_id}: {e}")
         return None
 
-# Для analysis.py — анализ всех монет списком, с ограничением на лимиты API
-async def get_current_price_batch(coin_ids, vs_currency="usd"):
-    prices = {}
-    batch_size = 20
-    url = "https://api.coingecko.com/api/v3/simple/price"
+def get_moving_average(coin_id):
+    try:
+        url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+        params = {
+            "vs_currency": "usd",
+            "days": "7",
+            "interval": "daily"
+        }
+        response = httpx.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
 
-    for i in range(0, len(coin_ids), batch_size):
-        batch = coin_ids[i:i + batch_size]
-        ids_param = ",".join(batch)
-        params = {"ids": ids_param, "vs_currencies": vs_currency}
+        prices = [price[1] for price in data["prices"]]
+        if not prices:
+            return None
+        ma = round(sum(prices) / len(prices), 4)
+        logger.debug(f"📉 MA(7d) для {coin_id}: {ma}")
+        return ma
 
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
-                prices.update(data)
-        except Exception as e:
-            logging.warning(f"Ошибка при получении batch {batch}: {e}")
-
-        await asyncio.sleep(1)  # Пауза между батчами, чтобы избежать 429
-
-    return prices
+    except Exception as e:
+        logger.error(f"⚠️ Ошибка при получении MA для {coin_id}: {e}")
+        return None
