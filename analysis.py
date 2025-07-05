@@ -3,14 +3,14 @@ import logging
 import numpy as np
 from typing import List, Dict, Tuple
 from crypto_list import crypto_list
-from crypto_utils import get_price_batch
+from crypto_utils import get_current_price_batch
 
 logger = logging.getLogger(__name__)
 
 
 def analyze_cryptos() -> List[Dict[str, str]]:
     try:
-        prices = get_price_batch(crypto_list)
+        prices = get_current_price_batch(crypto_list)
     except Exception as e:
         logger.warning(f"Ошибка при получении данных: {e}")
         return []
