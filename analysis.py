@@ -23,7 +23,8 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
             logger.warning(f"Нет цены для {coin} в batch-ответе.")
             continue
 
-        base_score = 0.5
+        # Базовая логика оценки
+        base_score = 0.62
 
         if "dog" in coin or "cat" in coin or "meme" in coin:
             base_score -= 0.1
@@ -32,7 +33,7 @@ async def analyze_cryptos() -> List[Dict[str, str]]:
         if price > 1:
             base_score += 0.05
 
-        noise = np.random.normal(0, 0.05)
+        noise = np.random.normal(0, 0.03)
         probability = np.clip(base_score + noise, 0, 1)
 
         if probability < 0.65:
