@@ -3,6 +3,7 @@ import os
 import time
 from datetime import datetime
 from aiogram import Bot
+import asyncio
 
 from config import NOTIFICATION_INTERVAL_SECONDS, TRACKING_FILE, GROWTH_THRESHOLD_PERCENT, TARGET_PROFIT_PERCENT
 from crypto_utils import get_current_price
