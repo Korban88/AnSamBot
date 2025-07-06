@@ -54,3 +54,5 @@ crypto_list = [
     {"id": "scroll", "symbol": "scrl"},
     {"id": "tensor", "symbol": "tensor"}
 ]
+
+TELEGRAM_WALLET_COINS = crypto_list
