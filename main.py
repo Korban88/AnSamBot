@@ -1,56 +1,60 @@
 import logging
-import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils import executor
+from aiogram import Bot, Dispatcher, executor, types
+from config import TELEGRAM_TOKEN, OWNER_ID
+from signal_utils import get_next_signal_message, reset_signal_index, stop_all_tracking
 
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_USER_ID
-from signal_utils import get_next_signal_message, reset_signal_index
-from tracking import tracking_loop
-from utils import escape_markdown
-
-# Включаем логирование
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Инициализируем бота и диспетчер
-bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=types.ParseMode.MARKDOWN_V2)
+bot = Bot(token=TELEGRAM_TOKEN, parse_mode=types.ParseMode.MARKDOWN_V2)
 dp = Dispatcher(bot)
 
-# Кнопки
-keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-keyboard.add(KeyboardButton("Получить ещё сигнал"))
-keyboard.add(KeyboardButton("Остановить все отслеживания"))
-keyboard.add(KeyboardButton("Старт"))
-
-
-@dp.message_handler(commands=["start"])
-async def handle_start(message: types.Message):
-    await message.answer(escape_markdown("Добро пожаловать в новую жизнь, Корбан!"), reply_markup=keyboard)
-
+@dp.message_handler(commands=['start'])
+async def send_welcome(message: types.Message):
+    await message.answer("Добро пожаловать в новую жизнь, Корбан!", reply_markup=main_keyboard())
 
 @dp.message_handler(lambda message: message.text == "Получить ещё сигнал")
 async def handle_get_signal(message: types.Message):
-    signal_message, coin_id, entry_price = await get_next_signal_message()
-    await message.answer(escape_markdown(signal_message), reply_markup=keyboard)
-
+    try:
+        signal_message, coin_id, entry_price = await get_next_signal_message()
+        await message.answer(signal_message, reply_markup=signal_keyboard(coin_id, entry_price))
+    except Exception as e:
+        logging.error(f"Ошибка при получении сигнала: {e}")
+        await message.answer("⚠️ Не удалось получить сигналы.")
 
 @dp.message_handler(lambda message: message.text == "Остановить все отслеживания")
-async def handle_reset_signal_index(message: types.Message):
-    reset_signal_index()
-    await message.answer(escape_markdown("♻️ Индекс сигналов сброшен. Теперь сигналы пойдут сначала."), reply_markup=keyboard)
-
+async def handle_stop_tracking(message: types.Message):
+    stop_all_tracking()
+    await message.answer("❌ Все отслеживания остановлены.")
 
 @dp.message_handler(lambda message: message.text == "Старт")
 async def handle_start_button(message: types.Message):
-    await handle_start(message)
+    await send_welcome(message)
 
+@dp.callback_query_handler(lambda c: c.data.startswith("track_"))
+async def handle_track_callback(callback_query: types.CallbackQuery):
+    try:
+        _, coin_id, entry_price = callback_query.data.split("_")
+        from tracking import start_tracking
+        await start_tracking(bot, coin_id, float(entry_price), OWNER_ID)
+        await callback_query.answer("Монета добавлена в отслеживание.")
+    except Exception as e:
+        logging.error(f"Ошибка в callback track: {e}")
+        await callback_query.answer("Ошибка при запуске отслеживания.")
 
-if __name__ == "__main__":
-    logger.info("📡 Бот запущен и отслеживание активировано.")
+def main_keyboard():
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add("Получить ещё сигнал")
+    keyboard.add("Остановить все отслеживания")
+    keyboard.add("Старт")
+    return keyboard
 
-    # Запускаем фоновую задачу
-    async def on_startup(dispatcher):
-        asyncio.create_task(tracking_loop(bot))
+def signal_keyboard(coin_id, entry_price):
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton(
+        text="Следить за монетой",
+        callback_data=f"track_{coin_id}_{entry_price}"
+    ))
+    return keyboard
 
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+if __name__ == '__main__':
+    logging.info("📡 Бот запущен и отслеживание активировано.")
+    executor.start_polling(dp, skip_updates=True)
