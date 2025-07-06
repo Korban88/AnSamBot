@@ -4,13 +4,13 @@ import random
 import os
 import json
 import time
+import asyncio
 
 logger = logging.getLogger(__name__)
 
 # === Кэш для RSI и MA ===
 INDICATORS_CACHE_FILE = "indicators_cache.json"
 
-# Загрузка кэша
 if os.path.exists(INDICATORS_CACHE_FILE):
     with open(INDICATORS_CACHE_FILE, "r") as f:
         indicators_cache = json.load(f)
@@ -44,7 +44,7 @@ def get_rsi(coin_id):
         logger.error(f"⚠️ Ошибка при получении RSI для {coin_id}: {e}")
         return None
 
-def get_moving_average(coin_id):
+async def get_moving_average(coin_id):
     try:
         now = time.time()
         if coin_id in indicators_cache:
@@ -52,6 +52,8 @@ def get_moving_average(coin_id):
             if "ma" in cached and now - cached["timestamp"] < 86400:
                 logger.debug(f"📦 MA для {coin_id} из кэша: {cached['ma']}")
                 return cached["ma"]
+
+        await asyncio.sleep(1.5)  # лимитируем частоту запросов
 
         url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
         params = {
