@@ -40,9 +40,12 @@ def analyze_cryptos():
             price_change_24h = coin.get("price_change_percentage_24h_in_currency", 0.0)
             current_price = coin["current_price"]
 
-            if ma is None or rsi is None:
-                logger.warning(f"⚠️ Пропуск монеты {coin['id']} из-за отсутствия RSI или MA")
+            if rsi is None:
+                logger.warning(f"⚠️ Пропуск монеты {coin['id']} из-за отсутствия RSI")
                 continue
+
+            if ma is None:
+                logger.warning(f"⚠️ Нет MA для {coin['id']}, анализ только по RSI и росту")
 
             trend_score = 0
             explanation = []
@@ -55,11 +58,12 @@ def analyze_cryptos():
                 trend_score += 10
                 explanation.append(f"RSI: {rsi:.1f} (нормальный)")
 
-            if current_price > ma:
-                trend_score += 7
-                explanation.append(f"Цена выше MA ({ma:.2f})")
-            else:
-                explanation.append(f"Цена ниже MA ({ma:.2f})")
+            if ma:
+                if current_price > ma:
+                    trend_score += 7
+                    explanation.append(f"Цена выше MA ({ma:.2f})")
+                else:
+                    explanation.append(f"Цена ниже MA ({ma:.2f})")
 
             probability = min(round(50 + trend_score, 2), 95)
 
