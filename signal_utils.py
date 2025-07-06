@@ -1,37 +1,46 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import json
+from analysis import analyze_cryptos
 
-# Хранилище индексов топ-монет по пользователям
-user_signal_index = {}
+SIGNAL_CACHE_FILE = "signal_cache.json"
+INDEX_FILE = "signal_index.json"
 
-def reset_signal_index(user_id: int):
-    """Сбросить индекс монеты для пользователя"""
-    user_signal_index[user_id] = 0
+def load_cached_signals():
+    try:
+        with open(SIGNAL_CACHE_FILE, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
 
-def get_next_signal_message(user_id: int, top_cryptos: list) -> dict | None:
-    """Получить следующий сигнал из top-3 монет для пользователя"""
-    index = user_signal_index.get(user_id, 0)
+def save_cached_signals(signals):
+    with open(SIGNAL_CACHE_FILE, "w") as f:
+        json.dump(signals, f)
 
-    if index >= len(top_cryptos):
-        return None
+def load_signal_index():
+    try:
+        with open(INDEX_FILE, "r") as f:
+            return json.load(f).get("index", 0)
+    except FileNotFoundError:
+        return 0
 
-    coin = top_cryptos[index]
-    user_signal_index[user_id] = index + 1
+def save_signal_index(index):
+    with open(INDEX_FILE, "w") as f:
+        json.dump({"index": index}, f)
 
-    text = (
-        f"*Монета:* `{coin['name']}` \\(`{coin['symbol'].upper()}`\\)\n"
-        f"*Цена входа:* `${coin['entry_price']}`\n"
-        f"*Цель \\( +5% \\):* `${coin['target_price']}`\n"
-        f"*Стоп\\-лосс:* `${coin['stop_loss']}`\n"
-        f"*Вероятность роста:* `{coin['growth_probability']}%`\n"
-        f"\n"
-        f"_RSI:_ `{coin['rsi']}` | _MA:_ `{coin.get('ma', 'N/A')}` | _Изменение за 24ч:_ `{coin['change_24h']}%`"
-    )
+def reset_signal_index():
+    save_signal_index(0)
 
-    keyboard = InlineKeyboardMarkup().add(
-        InlineKeyboardButton("📊 Следить за монетой", callback_data=f"track_{coin['id']}")
-    )
+async def get_next_signal_message():
+    signals = load_cached_signals()
+    index = load_signal_index()
 
-    return {
-        "text": text,
-        "keyboard": keyboard
-    }
+    if not signals:
+        signals = await analyze_cryptos()
+        save_cached_signals(signals)
+        index = 0
+
+    if index >= len(signals):
+        return None, None
+
+    signal = signals[index]
+    save_signal_index(index + 1)
+    return signal["message"], signal["coin_id"]
