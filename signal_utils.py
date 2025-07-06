@@ -1,4 +1,3 @@
-import random
 import logging
 from analysis import analyze_cryptos
 from crypto_list import CRYPTO_LIST
@@ -14,7 +13,10 @@ async def get_next_signal_message():
     global _signal_index
 
     try:
-        top_signals = await analyze_cryptos()
+        coin_ids = [coin['id'] for coin in CRYPTO_LIST]
+        coin_data = await fetch_all_coin_data(coin_ids)
+
+        top_signals = await analyze_cryptos(coin_data)
 
         if not top_signals or _signal_index >= len(top_signals):
             reset_signal_index()
