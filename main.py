@@ -54,8 +54,8 @@ async def handle_reset_signal_index(message: types.Message):
 
 if __name__ == '__main__':
     async def on_startup(dp):
-    logger.info("📡 Бот запущен и отслеживание активировано.")
-    asyncio.create_task(tracking_loop(bot))
+        logger.info("📡 Бот запущен и отслеживание активировано.")
+        asyncio.create_task(tracking_loop(bot))
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+        executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
