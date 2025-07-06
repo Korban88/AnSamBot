@@ -1,45 +1,45 @@
+import random
+import logging
 from analysis import analyze_cryptos
-from crypto_utils import fetch_all_coin_data
 from crypto_list import CRYPTO_LIST
+from crypto_utils import fetch_all_coin_data
 
-signal_index = 0
-
-async def get_next_signal_message():
-    global signal_index
-    coin_data_list = await fetch_all_coin_data([coin_id])
-    coin_data = coin_data_list[0]  # потому что возвращается список
-    top_3 = await analyze_cryptos(coin_data)
-
-    if not top_3:
-        raise Exception("Нет подходящих монет для сигнала")
-
-    coin = top_3[signal_index % len(top_3)]
-    signal_index += 1
-
-    coin_id = coin["id"]
-    probability = coin["probability"]
-    entry_price = coin["entry_price"]
-    target_price = coin["target_price"]
-    stop_loss_price = coin["stop_loss_price"]
-    rsi = coin["rsi"]
-    ma = coin["ma"]
-    change_24h = coin["change_24h"]
-
-    message = (
-        f"📈 <b>Сигнал на рост</b>\n\n"
-        f"Монета: <b>{coin_id}</b>\n"
-        f"Цена входа: <code>{entry_price}</code>\n"
-        f"Цель +5%: <code>{target_price}</code>\n"
-        f"Стоп-лосс: <code>{stop_loss_price}</code>\n"
-        f"Вероятность роста: <b>{probability:.1f}%</b>\n\n"
-        f"<b>Обоснование:</b>\n"
-        f"• RSI: {rsi} — индикатор перекупленности/перепроданности\n"
-        f"• MA: {ma} — скользящая средняя\n"
-        f"• 24ч изменение: {change_24h}%"
-    )
-
-    return message, coin_id, entry_price
+_signal_index = 0
 
 def reset_signal_index():
-    global signal_index
-    signal_index = 0
+    global _signal_index
+    _signal_index = 0
+
+async def get_next_signal_message():
+    global _signal_index
+
+    try:
+        top_signals = await analyze_cryptos()
+
+        if not top_signals or _signal_index >= len(top_signals):
+            reset_signal_index()
+            raise Exception("Сигналы закончились или не найдены.")
+
+        signal = top_signals[_signal_index]
+        _signal_index += 1
+
+        coin_id = signal["id"]
+        entry_price = signal["entry_price"]
+        target_price = signal["target_price"]
+        stop_loss = signal["stop_loss"]
+        probability = signal["probability"]
+
+        message = (
+            f"💹 <b>{coin_id.upper()}</b>\n\n"
+            f"🎯 Цель: +5%\n"
+            f"🔹 Вход: {entry_price}\n"
+            f"📈 Цель: {target_price}\n"
+            f"🛡 Стоп: {stop_loss}\n"
+            f"📊 Вероятность роста: {probability}%"
+        )
+
+        return message, coin_id, entry_price
+
+    except Exception as e:
+        logging.error(f"Ошибка при получении сигнала: {e}")
+        raise
