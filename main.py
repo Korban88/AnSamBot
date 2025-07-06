@@ -1,65 +1,47 @@
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, executor, types
+from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from config import TELEGRAM_TOKEN, OWNER_ID
-from crypto_list import get_all_cryptos
+from aiogram.utils import executor
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_USER_ID
 from analysis import analyze_cryptos
+from tracking import start_tracking, stop_all_tracking, tracking_loop
 from signal_utils import get_next_signal_message, reset_signal_index
-from tracking import start_tracking, stop_all_tracking
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-bot = Bot(token=TELEGRAM_TOKEN, parse_mode=types.ParseMode.MARKDOWN_V2)
+bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=types.ParseMode.MARKDOWN_V2)
 dp = Dispatcher(bot)
 
+# Кнопки меню
 keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-keyboard.add(KeyboardButton("Получить ещё сигнал"))
-keyboard.add(KeyboardButton("Остановить все отслеживания"))
+keyboard.add(
+    KeyboardButton("Получить ещё сигнал"),
+    KeyboardButton("Остановить все отслеживания")
+)
 
-@dp.message_handler(commands=["start"])
-async def start_command(message: types.Message):
+@dp.message_handler(commands=['start'])
+async def handle_start(message: types.Message):
     await message.answer("Добро пожаловать в новую жизнь, Корбан!", reply_markup=keyboard)
 
 @dp.message_handler(lambda message: message.text == "Получить ещё сигнал")
-async def handle_get_signal(message: types.Message):
-    logger.info("📩 Получен запрос на сигнал")
-    cryptos = get_all_cryptos()
-    results = await analyze_cryptos(cryptos)
+async def handle_next_signal(message: types.Message):
+    signal_message, coin_id, entry_price = get_next_signal_message()
+    await message.answer(signal_message, parse_mode=types.ParseMode.MARKDOWN_V2)
 
-    if not results:
-        await message.answer("🚫 Нет подходящих монет сейчас. Попробуй позже.")
-        return
-
-    signal = get_next_signal_message(results)
-    if signal:
-        await message.answer(signal, reply_markup=keyboard)
-    else:
-        await message.answer("⚠️ Не удалось сгенерировать новый сигнал.")
+    if coin_id and entry_price:
+        start_tracking(coin_id, message.from_user.id, entry_price)
 
 @dp.message_handler(lambda message: message.text == "Остановить все отслеживания")
-async def stop_tracking(message: types.Message):
+async def handle_stop_tracking(message: types.Message):
     stop_all_tracking()
-    await message.answer("⛔️ Все отслеживания остановлены.", reply_markup=keyboard)
+    await message.answer("🛑 Все отслеживания остановлены.")
 
-async def send_daily_signal():
-    await bot.wait_until_ready()
-    while True:
-        now = asyncio.get_event_loop().time()
-        next_run = ((now // 86400) + 1) * 86400 + 8 * 3600  # 8:00 МСК
-        await asyncio.sleep(max(0, next_run - now))
+async def on_startup(dispatcher):
+    asyncio.create_task(tracking_loop(bot))
+    logger.info("📡 Бот запущен и отслеживание активировано.")
 
-        cryptos = get_all_cryptos()
-        results = await analyze_cryptos(cryptos)
-
-        if results:
-            reset_signal_index()
-            signal = get_next_signal_message(results)
-            if signal:
-                await bot.send_message(chat_id=OWNER_ID, text=signal, reply_markup=keyboard)
-
-if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(send_daily_signal())
-    executor.start_polling(dp, skip_updates=True)
+if __name__ == '__main__':
+    reset_signal_index()
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
