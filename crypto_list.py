@@ -1,4 +1,4 @@
-crypto_list = [
+CRYPTO_LIST = [
     "bitcoin", "ethereum", "toncoin", "dogecoin", "shiba-inu",
     "tron", "litecoin", "bitcoin-cash", "polygon", "optimism",
     "arbitrum", "avalanche-2", "fantom", "render-token", "aave",
