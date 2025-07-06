@@ -1,13 +1,44 @@
 import httpx
 import logging
 import random
+import os
+import json
+import time
 
 logger = logging.getLogger(__name__)
 
+# === Кэш для RSI и MA ===
+INDICATORS_CACHE_FILE = "indicators_cache.json"
+
+# Загрузка кэша
+if os.path.exists(INDICATORS_CACHE_FILE):
+    with open(INDICATORS_CACHE_FILE, "r") as f:
+        indicators_cache = json.load(f)
+else:
+    indicators_cache = {}
+
+def save_indicators_cache():
+    with open(INDICATORS_CACHE_FILE, "w") as f:
+        json.dump(indicators_cache, f)
+
 def get_rsi(coin_id):
     try:
+        now = time.time()
+        if coin_id in indicators_cache:
+            cached = indicators_cache[coin_id]
+            if "rsi" in cached and now - cached["timestamp"] < 86400:
+                logger.debug(f"📦 RSI для {coin_id} из кэша: {cached['rsi']}")
+                return cached["rsi"]
+
         value = round(random.uniform(40, 75), 2)
-        logger.debug(f"📈 RSI для {coin_id}: {value}")
+        logger.debug(f"📈 RSI для {coin_id} (новый): {value}")
+
+        if coin_id not in indicators_cache:
+            indicators_cache[coin_id] = {}
+
+        indicators_cache[coin_id]["rsi"] = value
+        indicators_cache[coin_id]["timestamp"] = now
+        save_indicators_cache()
         return value
     except Exception as e:
         logger.error(f"⚠️ Ошибка при получении RSI для {coin_id}: {e}")
@@ -15,6 +46,13 @@ def get_rsi(coin_id):
 
 def get_moving_average(coin_id):
     try:
+        now = time.time()
+        if coin_id in indicators_cache:
+            cached = indicators_cache[coin_id]
+            if "ma" in cached and now - cached["timestamp"] < 86400:
+                logger.debug(f"📦 MA для {coin_id} из кэша: {cached['ma']}")
+                return cached["ma"]
+
         url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
         params = {
             "vs_currency": "usd",
@@ -28,7 +66,14 @@ def get_moving_average(coin_id):
         if not prices:
             return None
         ma = round(sum(prices) / len(prices), 4)
-        logger.debug(f"📉 MA(7d) для {coin_id}: {ma}")
+        logger.debug(f"📉 MA(7d) для {coin_id} (новый): {ma}")
+
+        if coin_id not in indicators_cache:
+            indicators_cache[coin_id] = {}
+
+        indicators_cache[coin_id]["ma"] = ma
+        indicators_cache[coin_id]["timestamp"] = now
+        save_indicators_cache()
         return ma
     except Exception as e:
         logger.error(f"⚠️ Ошибка при получении MA для {coin_id}: {e}")
