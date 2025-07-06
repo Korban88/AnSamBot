@@ -14,7 +14,17 @@ async def fetch_all_coin_data(coin_ids):
     }
     async with aiohttp.ClientSession() as session:
         async with session.get(url, params=params) as response:
-            return await response.json()
+            data = await response.json()
+
+            # Преобразуем список в словарь по coin_id
+            return {
+                coin["id"]: {
+                    "price": coin["current_price"],
+                    "change_24h": coin.get("price_change_percentage_24h")
+                }
+                for coin in data
+                if "id" in coin and "current_price" in coin
+            }
 
 async def get_current_price(coin_id):
     url = f"https://api.coingecko.com/api/v3/simple/price"
