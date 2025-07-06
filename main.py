@@ -21,7 +21,7 @@ async def handle_start(message: types.Message):
         await message.reply("🚫 У вас нет доступа к этому боту.")
         return
     keyboard = get_main_keyboard()
-    await message.answer("Добро пожаловать в новую жизнь, Корбан!", reply_markup=keyboard)
+    await message.answer("Добро пожаловать в новую жизнь, Корбан\\!", reply_markup=keyboard)
 
 
 @dp.message_handler(lambda message: message.text == "Получить ещё сигнал")
