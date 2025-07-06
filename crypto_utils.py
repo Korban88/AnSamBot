@@ -1,60 +1,61 @@
 import httpx
 import logging
 import random
-import os
 import json
-import time
-import asyncio
+import os
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# === Кэш для RSI и MA ===
-INDICATORS_CACHE_FILE = "indicators_cache.json"
+CACHE_FILE = "indicators_cache.json"
+CACHE_TTL_HOURS = 12
 
-if os.path.exists(INDICATORS_CACHE_FILE):
-    with open(INDICATORS_CACHE_FILE, "r") as f:
-        indicators_cache = json.load(f)
-else:
-    indicators_cache = {}
+def load_cache():
+    if not os.path.exists(CACHE_FILE):
+        return {}
+    try:
+        with open(CACHE_FILE, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Ошибка чтения кеша: {e}")
+        return {}
 
-def save_indicators_cache():
-    with open(INDICATORS_CACHE_FILE, "w") as f:
-        json.dump(indicators_cache, f)
+def save_cache(cache):
+    try:
+        with open(CACHE_FILE, "w") as f:
+            json.dump(cache, f)
+    except Exception as e:
+        logger.error(f"Ошибка записи кеша: {e}")
+
+def is_fresh(timestamp_str):
+    try:
+        timestamp = datetime.fromisoformat(timestamp_str)
+        return datetime.utcnow() - timestamp < timedelta(hours=CACHE_TTL_HOURS)
+    except Exception:
+        return False
+
+cache = load_cache()
 
 def get_rsi(coin_id):
     try:
-        now = time.time()
-        if coin_id in indicators_cache:
-            cached = indicators_cache[coin_id]
-            if "rsi" in cached and now - cached["timestamp"] < 86400:
-                logger.debug(f"📦 RSI для {coin_id} из кэша: {cached['rsi']}")
-                return cached["rsi"]
-
+        if coin_id in cache and "rsi" in cache[coin_id] and is_fresh(cache[coin_id]["rsi"]["timestamp"]):
+            return cache[coin_id]["rsi"]["value"]
         value = round(random.uniform(40, 75), 2)
-        logger.debug(f"📈 RSI для {coin_id} (новый): {value}")
-
-        if coin_id not in indicators_cache:
-            indicators_cache[coin_id] = {}
-
-        indicators_cache[coin_id]["rsi"] = value
-        indicators_cache[coin_id]["timestamp"] = now
-        save_indicators_cache()
+        logger.debug(f"📈 RSI для {coin_id}: {value}")
+        cache.setdefault(coin_id, {})["rsi"] = {
+            "value": value,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        save_cache(cache)
         return value
     except Exception as e:
         logger.error(f"⚠️ Ошибка при получении RSI для {coin_id}: {e}")
         return None
 
-async def get_moving_average(coin_id):
+def get_moving_average(coin_id):
     try:
-        now = time.time()
-        if coin_id in indicators_cache:
-            cached = indicators_cache[coin_id]
-            if "ma" in cached and now - cached["timestamp"] < 86400:
-                logger.debug(f"📦 MA для {coin_id} из кэша: {cached['ma']}")
-                return cached["ma"]
-
-        await asyncio.sleep(1.5)  # лимитируем частоту запросов
-
+        if coin_id in cache and "ma" in cache[coin_id] and is_fresh(cache[coin_id]["ma"]["timestamp"]):
+            return cache[coin_id]["ma"]["value"]
         url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
         params = {
             "vs_currency": "usd",
@@ -68,14 +69,12 @@ async def get_moving_average(coin_id):
         if not prices:
             return None
         ma = round(sum(prices) / len(prices), 4)
-        logger.debug(f"📉 MA(7d) для {coin_id} (новый): {ma}")
-
-        if coin_id not in indicators_cache:
-            indicators_cache[coin_id] = {}
-
-        indicators_cache[coin_id]["ma"] = ma
-        indicators_cache[coin_id]["timestamp"] = now
-        save_indicators_cache()
+        logger.debug(f"📉 MA(7d) для {coin_id}: {ma}")
+        cache.setdefault(coin_id, {})["ma"] = {
+            "value": ma,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        save_cache(cache)
         return ma
     except Exception as e:
         logger.error(f"⚠️ Ошибка при получении MA для {coin_id}: {e}")
