@@ -1,9 +1,10 @@
 import aiohttp
-import time
+import asyncio
 
+# Получение текущей цены монеты
 async def get_current_price(coin_id: str):
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price"
+        url = "https://api.coingecko.com/api/v3/simple/price"
         params = {"ids": coin_id, "vs_currencies": "usd"}
         async with aiohttp.ClientSession() as session:
             async with session.get(url, params=params) as response:
@@ -14,6 +15,7 @@ async def get_current_price(coin_id: str):
     except Exception:
         return None
 
+# Получение скользящей средней
 async def get_moving_average(coin_id: str, days: int = 14):
     try:
         url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
@@ -31,6 +33,7 @@ async def get_moving_average(coin_id: str, days: int = 14):
     except Exception:
         return None
 
+# Получение RSI
 async def get_rsi(coin_id: str, period: int = 14):
     try:
         url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
@@ -64,3 +67,17 @@ async def get_rsi(coin_id: str, period: int = 14):
                 return rsi
     except Exception:
         return None
+
+# Получение цен всех монет из списка
+async def fetch_all_coin_data(coin_ids: list):
+    try:
+        ids_param = ",".join(coin_ids)
+        url = "https://api.coingecko.com/api/v3/simple/price"
+        params = {"ids": ids_param, "vs_currencies": "usd"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as response:
+                if response.status != 200:
+                    return {}
+                return await response.json()
+    except Exception:
+        return {}
