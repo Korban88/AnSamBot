@@ -1,11 +1,12 @@
 import httpx
 import logging
+import asyncio
 from crypto_list import crypto_list
 from crypto_utils import get_rsi, get_moving_average
 
 logger = logging.getLogger(__name__)
 
-def analyze_cryptos():
+async def analyze_cryptos():
     crypto_ids = [crypto["id"] for crypto in crypto_list]
     all_data = []
     batch_size = 20
@@ -36,7 +37,7 @@ def analyze_cryptos():
     for coin in all_data:
         try:
             rsi = get_rsi(coin["id"])
-            ma = get_moving_average(coin["id"])
+            ma = await get_moving_average(coin["id"])
             price_change_24h = coin.get("price_change_percentage_24h_in_currency", 0.0)
             current_price = coin["current_price"]
 
