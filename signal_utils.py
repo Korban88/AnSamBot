@@ -1,12 +1,13 @@
-import random
 from analysis import analyze_cryptos
+from crypto_utils import fetch_all_current_prices
 
 signal_index = 0
 
 async def get_next_signal_message():
     global signal_index
 
-    top_cryptos = await analyze_cryptos()
+    coin_data = await fetch_all_current_prices()
+    top_cryptos = await analyze_cryptos(coin_data)
 
     if not top_cryptos:
         return "⚠️ Не удалось получить сигналы.", None, None
