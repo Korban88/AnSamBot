@@ -4,16 +4,13 @@ from crypto_list import CRYPTO_LIST
 
 def calculate_probability(change_24h, rsi, ma, price):
     score = 0
-
     if change_24h > 0:
         score += 1
     if rsi < 70:
         score += 1
     if price > ma:
         score += 1
-
-    probability = min(95, 50 + score * 15)
-    return probability
+    return min(95, 50 + score * 15)
 
 async def analyze_cryptos(coin_data):
     results = []
@@ -23,18 +20,22 @@ async def analyze_cryptos(coin_data):
         symbol = coin["symbol"]
 
         data = coin_data.get(coin_id)
-        if not data:
-            continue
+        if not isinstance(data, dict):
+            continue  # пропускаем, если данные повреждены
 
-        price = data["price"]
+        price = data.get("price")
+        change_24h = data.get("change_24h")
         ma = await get_moving_average(coin_id)
         rsi = await get_rsi(coin_id)
-        change_24h = data["change_24h"]
 
         if any(metric is None for metric in [price, ma, rsi, change_24h]):
             continue
 
         probability = calculate_probability(change_24h, rsi, ma, price)
+
+        entry_price = price
+        target_price = round(price * 1.05, 4)
+        stop_loss = round(price * 0.97, 4)
 
         results.append({
             "id": coin_id,
@@ -43,14 +44,12 @@ async def analyze_cryptos(coin_data):
             "ma": ma,
             "rsi": rsi,
             "change_24h": change_24h,
-            "probability": probability
+            "probability": probability,
+            "entry_price": entry_price,
+            "target_price": target_price,
+            "stop_loss": stop_loss
         })
 
-    # Ослабленный фильтр: пропускаем монеты с вероятностью >= 60% (было 65%) и падением не более -6% (было -3%)
-    filtered = [
-        r for r in results
-        if r["probability"] >= 60 and r["change_24h"] > -6
-    ]
-
+    filtered = [r for r in results if r["probability"] >= 60 and r["change_24h"] > -6]
     sorted_results = sorted(filtered, key=lambda x: x["probability"], reverse=True)
     return sorted_results[:3]
