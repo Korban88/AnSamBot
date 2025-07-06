@@ -1,92 +1,78 @@
-import httpx
 import logging
-import asyncio
-from crypto_list import crypto_list
-from crypto_utils import get_rsi, get_moving_average
+from crypto_utils import get_current_price, get_moving_average, get_rsi
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("analysis")
 
-async def analyze_cryptos():
-    crypto_ids = [crypto["id"] for crypto in crypto_list]
-    all_data = []
-    batch_size = 20
+async def analyze_coin(coin):
+    coin_id = coin["id"]
+    try:
+        current_price = coin.get("current_price")
+        if current_price is None:
+            current_price = await get_current_price(coin_id)
+        if current_price is None:
+            logger.warning(f"⚠️ Пропуск {coin_id}: нет текущей цены")
+            return None
 
-    for i in range(0, len(crypto_ids), batch_size):
-        batch_ids = crypto_ids[i:i+batch_size]
-        url = f"https://api.coingecko.com/api/v3/coins/markets"
-        params = {
-            "vs_currency": "usd",
-            "ids": ",".join(batch_ids),
-            "price_change_percentage": "24h"
+        ma = await get_moving_average(coin_id)
+        rsi = await get_rsi(coin_id)
+
+        if ma is None and rsi is None:
+            logger.warning(f"⚠️ Нет MA и RSI для {coin_id}, пропускаем")
+            return None
+
+        ma_score = 0
+        if ma:
+            ma_score = max(0, min(1, (current_price - ma) / ma))
+
+        rsi_score = 0
+        if rsi:
+            if 50 < rsi < 70:
+                rsi_score = (rsi - 50) / 20
+            elif rsi >= 70:
+                rsi_score = 0.1  # перекупленность
+
+        change_24h = coin.get("price_change_percentage_24h", 0)
+        if change_24h is None:
+            change_24h = 0
+
+        if change_24h < -3:
+            logger.info(f"❌ {coin_id} отфильтрован: падение за 24ч {change_24h:.2f}%")
+            return None
+
+        growth_score = max(0, min(1, change_24h / 5))  # рост до 5% — максимум
+
+        score = 0.5 * ma_score + 0.3 * rsi_score + 0.2 * growth_score
+        probability = round(50 + score * 50)
+
+        if probability < 65:
+            return None
+
+        return {
+            "id": coin_id,
+            "symbol": coin.get("symbol"),
+            "name": coin.get("name"),
+            "current_price": current_price,
+            "ma": ma,
+            "rsi": rsi,
+            "change_24h": change_24h,
+            "probability": probability
         }
 
-        try:
-            response = httpx.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            logger.info(f"✅ Получено монет в партии: {len(data)}")
-            all_data.extend(data)
-        except httpx.HTTPError as e:
-            logger.error(f"❌ Ошибка запроса CoinGecko: {e}")
-            continue
+    except Exception as e:
+        logger.error(f"⚠️ Ошибка при анализе {coin_id}: {e}")
+        return None
 
-    logger.info(f"📊 Всего монет получено: {len(all_data)}")
+async def analyze_cryptos(coin_data):
+    results = []
+    for coin in coin_data:
+        result = await analyze_coin(coin)
+        if result:
+            results.append(result)
 
-    analyzed = []
+    logger.info(f"🎯 Монет после фильтрации: {len(results)}")
 
-    for coin in all_data:
-        try:
-            rsi = get_rsi(coin["id"])
-            ma = await get_moving_average(coin["id"])
-            price_change_24h = coin.get("price_change_percentage_24h_in_currency", 0.0)
-            current_price = coin["current_price"]
+    sorted_results = sorted(results, key=lambda x: x["probability"], reverse=True)
+    top_3 = sorted_results[:3]
 
-            if rsi is None:
-                logger.warning(f"⚠️ Пропуск монеты {coin['id']} из-за отсутствия RSI")
-                continue
-
-            if ma is None:
-                logger.warning(f"⚠️ Нет MA для {coin['id']}, анализ только по RSI и росту")
-
-            trend_score = 0
-            explanation = []
-
-            if price_change_24h > 0:
-                trend_score += price_change_24h / 2
-                explanation.append(f"Рост за 24ч: {price_change_24h:.2f}%")
-
-            if 45 < rsi < 70:
-                trend_score += 10
-                explanation.append(f"RSI: {rsi:.1f} (нормальный)")
-
-            if ma:
-                if current_price > ma:
-                    trend_score += 7
-                    explanation.append(f"Цена выше MA ({ma:.2f})")
-                else:
-                    explanation.append(f"Цена ниже MA ({ma:.2f})")
-
-            probability = min(round(50 + trend_score, 2), 95)
-
-            if probability >= 65 and price_change_24h > -3:
-                analyzed.append({
-                    "id": coin["id"],
-                    "symbol": coin["symbol"],
-                    "name": coin["name"],
-                    "price": current_price,
-                    "price_change_24h": price_change_24h,
-                    "rsi": rsi,
-                    "ma": ma,
-                    "probability": probability,
-                    "explanation": explanation
-                })
-
-        except Exception as e:
-            logger.error(f"⚠️ Ошибка при анализе {coin['id']}: {e}")
-
-    logger.info(f"🎯 Монет после фильтрации: {len(analyzed)}")
-
-    top_3 = sorted(analyzed, key=lambda x: x["probability"], reverse=True)[:3]
-    logger.info(f"🏆 Отобрано top-3 монет: {[x['symbol'] for x in top_3]}")
-
+    logger.info(f"🏆 Отобрано top-3 монет: {[coin['id'] for coin in top_3]}")
     return top_3
