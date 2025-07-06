@@ -1,61 +1,56 @@
-import asyncio
-import json
 import logging
+import asyncio
 from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils import executor
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_USER_ID
-from keyboards import get_main_keyboard
-from signal_utils import get_next_signal_message, reset_signal_index
-from tracking import start_tracking, stop_all_tracking, tracking_loop
 
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_USER_ID
+from signal_utils import get_next_signal_message, reset_signal_index
+from tracking import tracking_loop
+from utils import escape_markdown
+
+# Включаем логирование
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Инициализируем бота и диспетчер
 bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=types.ParseMode.MARKDOWN_V2)
 dp = Dispatcher(bot)
 
+# Кнопки
+keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+keyboard.add(KeyboardButton("Получить ещё сигнал"))
+keyboard.add(KeyboardButton("Остановить все отслеживания"))
+keyboard.add(KeyboardButton("Старт"))
 
-@dp.message_handler(commands=['start'])
+
+@dp.message_handler(commands=["start"])
 async def handle_start(message: types.Message):
-    if str(message.from_user.id) != str(TELEGRAM_USER_ID):
-        await message.reply("🚫 У вас нет доступа к этому боту.")
-        return
-    keyboard = get_main_keyboard()
-    await message.answer("Добро пожаловать в новую жизнь, Корбан\\!", reply_markup=keyboard)
+    await message.answer(escape_markdown("Добро пожаловать в новую жизнь, Корбан!"), reply_markup=keyboard)
 
 
 @dp.message_handler(lambda message: message.text == "Получить ещё сигнал")
 async def handle_get_signal(message: types.Message):
     signal_message, coin_id, entry_price = await get_next_signal_message()
-    keyboard = types.InlineKeyboardMarkup()
-    button = types.InlineKeyboardButton(text="📈 Следить за монетой", callback_data=f"track:{coin_id}:{entry_price}")
-    keyboard.add(button)
-    await message.answer(signal_message, reply_markup=keyboard)
-
-
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith('track:'))
-async def handle_track_callback(callback_query: types.CallbackQuery):
-    _, coin_id, entry_price = callback_query.data.split(':')
-    await start_tracking(coin_id, float(entry_price), bot)
-    await callback_query.answer(f"⏱ Монета {coin_id} отслеживается")
+    await message.answer(escape_markdown(signal_message), reply_markup=keyboard)
 
 
 @dp.message_handler(lambda message: message.text == "Остановить все отслеживания")
-async def handle_stop_tracking(message: types.Message):
-    await stop_all_tracking(bot)
-    await message.answer("🛑 Отслеживание всех монет остановлено")
+async def handle_reset_signal_index(message: types.Message):
+    reset_signal_index()
+    await message.answer(escape_markdown("♻️ Индекс сигналов сброшен. Теперь сигналы пойдут сначала."), reply_markup=keyboard)
 
 
 @dp.message_handler(lambda message: message.text == "Старт")
-async def handle_reset_signal_index(message: types.Message):
-    reset_signal_index()
-    await message.answer("♻️ Индекс сигналов сброшен. Теперь сигналы пойдут сначала.")
+async def handle_start_button(message: types.Message):
+    await handle_start(message)
 
-
-if __name__ == '__main__':
-    async def on_startup(dp):
-        logger.info("📡 Бот запущен и отслеживание активировано.")
-        asyncio.create_task(tracking_loop(bot))
 
 if __name__ == "__main__":
-        executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+    logger.info("📡 Бот запущен и отслеживание активировано.")
+
+    # Запускаем фоновую задачу
+    async def on_startup(dispatcher):
+        asyncio.create_task(tracking_loop(bot))
+
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
