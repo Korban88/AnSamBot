@@ -18,7 +18,7 @@ def calculate_probability(change_24h, rsi, ma, price):
 async def analyze_cryptos(coin_data):
     results = []
 
-    for coin in crypto_list:
+    for coin in CRYPTO_LIST:
         coin_id = coin["id"]
         symbol = coin["symbol"]
 
