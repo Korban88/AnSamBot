@@ -6,7 +6,8 @@ signal_index = 0
 
 async def get_next_signal_message():
     global signal_index
-    coin_data = await fetch_all_coin_data(CRYPTO_LIST)
+    coin_data_list = await fetch_all_coin_data([coin_id])
+    coin_data = coin_data_list[0]  # потому что возвращается список
     top_3 = await analyze_cryptos(coin_data)
 
     if not top_3:
