@@ -1,78 +1,68 @@
-import asyncio
 import json
-import logging
 import os
-from datetime import datetime, timedelta
-
+import time
+from datetime import datetime
 from aiogram import Bot
 
-from config import NOTIFICATION_INTERVAL_SECONDS, TRACKING_FILE, TARGET_PROFIT_PERCENT
+from config import NOTIFICATION_INTERVAL_SECONDS, TRACKING_FILE, GROWTH_THRESHOLD_PERCENT, TARGET_PROFIT_PERCENT
 from crypto_utils import get_current_price
 
-logger = logging.getLogger(__name__)
-
-tracking_tasks = {}
-
+# Загрузка активных трекингов
 def load_tracking_data():
     if not os.path.exists(TRACKING_FILE):
         return {}
     with open(TRACKING_FILE, 'r') as f:
         return json.load(f)
 
+# Сохранение трекингов
 def save_tracking_data(data):
     with open(TRACKING_FILE, 'w') as f:
         json.dump(data, f, indent=2)
 
-async def start_tracking(bot: Bot, user_id: int, symbol: str, entry_price: float):
-    logger.info(f"🚀 Запуск отслеживания монеты: {symbol} по цене {entry_price}")
-    tracking_data = load_tracking_data()
-    tracking_data[symbol] = {
-        "user_id": user_id,
-        "symbol": symbol,
-        "entry_price": entry_price,
-        "start_time": datetime.utcnow().isoformat()
+# Запустить отслеживание монеты
+def start_tracking(coin_id: str, user_id: int, initial_price: float):
+    data = load_tracking_data()
+    data[coin_id] = {
+        'user_id': user_id,
+        'start_time': time.time(),
+        'initial_price': initial_price
     }
-    save_tracking_data(tracking_data)
+    save_tracking_data(data)
 
-    async def check_price():
-        try:
-            while True:
-                current_price = await get_current_price(symbol)
-                if current_price is None:
-                    await asyncio.sleep(NOTIFICATION_INTERVAL_SECONDS)
-                    continue
+# Остановить все трекинги
+def stop_all_tracking():
+    save_tracking_data({})
 
-                growth = (current_price - entry_price) / entry_price * 100
-                logger.info(f"📈 [{symbol}] Цена: {current_price} ({growth:.2f}% от входа)")
+# Асинхронная задача, которая запускается в фоне
+async def tracking_loop(bot: Bot):
+    while True:
+        data = load_tracking_data()
+        updated_data = {}
+        for coin_id, info in data.items():
+            user_id = info['user_id']
+            start_time = info['start_time']
+            initial_price = info['initial_price']
 
-                if growth >= TARGET_PROFIT_PERCENT:
-                    await bot.send_message(user_id, f"✅ {symbol.upper()} выросла на {growth:.2f}% с момента отслеживания.")
-                    tracking_tasks.pop(symbol, None)
-                    tracking_data.pop(symbol, None)
-                    save_tracking_data(tracking_data)
-                    break
+            current_price = await get_current_price(coin_id)
+            if current_price is None:
+                continue
 
-                start_time = datetime.fromisoformat(tracking_data[symbol]["start_time"])
-                if datetime.utcnow() - start_time > timedelta(hours=12):
-                    await bot.send_message(user_id, f"⏱ Прошло 12 часов, {symbol.upper()} изменилась на {growth:.2f}%.")
-                    tracking_tasks.pop(symbol, None)
-                    tracking_data.pop(symbol, None)
-                    save_tracking_data(tracking_data)
-                    break
+            percent_change = ((current_price - initial_price) / initial_price) * 100
 
-                await asyncio.sleep(NOTIFICATION_INTERVAL_SECONDS)
-        except asyncio.CancelledError:
-            logger.info(f"❌ Отслеживание отменено: {symbol}")
-        except Exception as e:
-            logger.error(f"⚠️ Ошибка в отслеживании {symbol}: {e}")
+            # Уведомление о росте +3.5% или +5%
+            if percent_change >= TARGET_PROFIT_PERCENT:
+                await bot.send_message(user_id, f"📈 Монета *{coin_id}* выросла на *{percent_change:.2f}%* 🚀", parse_mode='MarkdownV2')
+                continue  # не добавляем в updated_data — отслеживание завершено
+            elif percent_change >= GROWTH_THRESHOLD_PERCENT:
+                await bot.send_message(user_id, f"🔔 *{coin_id}* достигла +{GROWTH_THRESHOLD_PERCENT}% роста \\({percent_change:.2f}%\\)", parse_mode='MarkdownV2')
 
-    task = asyncio.create_task(check_price())
-    tracking_tasks[symbol] = task
+            # Проверка на 12 часов ожидания
+            elapsed_hours = (time.time() - start_time) / 3600
+            if elapsed_hours >= 12:
+                await bot.send_message(user_id, f"⏰ Прошло 12 часов с начала отслеживания *{coin_id}*. Изменение: *{percent_change:.2f}%*", parse_mode='MarkdownV2')
+                continue  # завершено
 
-async def stop_all_tracking():
-    for task in tracking_tasks.values():
-        task.cancel()
-    tracking_tasks.clear()
-    if os.path.exists(TRACKING_FILE):
-        os.remove(TRACKING_FILE)
-    logger.info("🛑 Все отслеживания остановлены")
+            updated_data[coin_id] = info
+
+        save_tracking_data(updated_data)
+        await asyncio.sleep(NOTIFICATION_INTERVAL_SECONDS)
