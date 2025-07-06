@@ -3,4 +3,3 @@ aiohttp==3.9.3
 apscheduler==3.10.4
 numpy==1.26.4
 python-dotenv==1.0.1
-sqlite3==2.6.0
