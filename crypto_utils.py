@@ -1,98 +1,84 @@
 import httpx
 import logging
-import random
 import json
 import os
-from datetime import datetime, timedelta
+from config import INDICATOR_CACHE_FILE
 
 logger = logging.getLogger(__name__)
 
-CACHE_FILE = "indicators_cache.json"
-CACHE_TTL_HOURS = 12
+def load_indicators_cache():
+    if os.path.exists(INDICATOR_CACHE_FILE):
+        try:
+            with open(INDICATOR_CACHE_FILE, "r") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            logger.warning("⚠️ Ошибка при чтении indicators_cache.json. Используется пустой кэш.")
+    return {}
 
-def load_cache():
-    if not os.path.exists(CACHE_FILE):
-        return {}
+def save_indicators_cache(cache):
+    with open(INDICATOR_CACHE_FILE, "w") as f:
+        json.dump(cache, f, indent=4)
+
+indicators_cache = load_indicators_cache()
+
+async def get_current_price(coin_id):
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
     try:
-        with open(CACHE_FILE, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Ошибка чтения кеша: {e}")
-        return {}
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.json().get(coin_id, {}).get("usd")
+    except httpx.HTTPError as e:
+        logger.error(f"⚠️ Ошибка при получении цены {coin_id}: {e}")
+        return None
 
-def save_cache(cache):
+async def get_rsi(coin_id):
+    if coin_id in indicators_cache and "rsi" in indicators_cache[coin_id]:
+        return indicators_cache[coin_id]["rsi"]
+
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=14&interval=daily"
     try:
-        with open(CACHE_FILE, "w") as f:
-            json.dump(cache, f)
-    except Exception as e:
-        logger.error(f"Ошибка записи кеша: {e}")
-
-def is_fresh(timestamp_str):
-    try:
-        timestamp = datetime.fromisoformat(timestamp_str)
-        return datetime.utcnow() - timestamp < timedelta(hours=CACHE_TTL_HOURS)
-    except Exception:
-        return False
-
-cache = load_cache()
-
-def get_rsi(coin_id):
-    try:
-        if coin_id in cache and "rsi" in cache[coin_id] and is_fresh(cache[coin_id]["rsi"]["timestamp"]):
-            return cache[coin_id]["rsi"]["value"]
-        value = round(random.uniform(40, 75), 2)
-        logger.debug(f"📈 RSI для {coin_id}: {value}")
-        cache.setdefault(coin_id, {})["rsi"] = {
-            "value": value,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        save_cache(cache)
-        return value
-    except Exception as e:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.json()
+            prices = [price[1] for price in data["prices"]]
+            if len(prices) < 15:
+                return None
+            deltas = [prices[i+1] - prices[i] for i in range(len(prices)-1)]
+            gains = [delta for delta in deltas if delta > 0]
+            losses = [-delta for delta in deltas if delta < 0]
+            avg_gain = sum(gains) / 14 if gains else 0
+            avg_loss = sum(losses) / 14 if losses else 1
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+            indicators_cache.setdefault(coin_id, {})["rsi"] = rsi
+            save_indicators_cache(indicators_cache)
+            return rsi
+    except httpx.HTTPError as e:
         logger.error(f"⚠️ Ошибка при получении RSI для {coin_id}: {e}")
         return None
 
-def get_moving_average(coin_id):
-    try:
-        if coin_id in cache and "ma" in cache[coin_id] and is_fresh(cache[coin_id]["ma"]["timestamp"]):
-            return cache[coin_id]["ma"]["value"]
-        url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
-        params = {
-            "vs_currency": "usd",
-            "days": "7",
-            "interval": "daily"
-        }
-        response = httpx.get(url, params=params)
-        response.raise_for_status()
-        data = response.json()
-        prices = [price[1] for price in data["prices"]]
-        if not prices:
-            return None
-        ma = round(sum(prices) / len(prices), 4)
-        logger.debug(f"📉 MA(7d) для {coin_id}: {ma}")
-        cache.setdefault(coin_id, {})["ma"] = {
-            "value": ma,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        save_cache(cache)
-        return ma
-    except Exception as e:
-        logger.error(f"⚠️ Ошибка при получении MA для {coin_id}: {e}")
-        return None
+async def get_moving_average(coin_id):
+    if coin_id in indicators_cache and "ma" in indicators_cache[coin_id]:
+        return indicators_cache[coin_id]["ma"]
 
-def get_current_price(coin_id):
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=7&interval=daily"
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price"
-        params = {
-            "ids": coin_id,
-            "vs_currencies": "usd"
-        }
-        response = httpx.get(url, params=params)
-        response.raise_for_status()
-        data = response.json()
-        price = data[coin_id]["usd"]
-        logger.debug(f"💰 Текущая цена {coin_id}: {price}")
-        return price
-    except Exception as e:
-        logger.error(f"❌ Ошибка при получении текущей цены для {coin_id}: {e}")
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.json()
+            prices = [price[1] for price in data["prices"]]
+            if not prices:
+                return None
+            ma = sum(prices) / len(prices)
+            indicators_cache.setdefault(coin_id, {})["ma"] = ma
+            save_indicators_cache(indicators_cache)
+            return ma
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            logger.error(f"⚠️ Ошибка 429 при получении MA для {coin_id}: {e}")
+        else:
+            logger.error(f"⚠️ Ошибка при получении MA для {coin_id}: {e}")
         return None
