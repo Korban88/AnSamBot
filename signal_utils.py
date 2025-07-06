@@ -1,6 +1,7 @@
-# signal_utils.py
-
+import json
 from analysis import analyze_cryptos
+from crypto_utils import fetch_all_coin_data
+from utils import escape_markdown
 from tracking import start_tracking
 from config import TELEGRAM_USER_ID
 
@@ -11,36 +12,42 @@ async def get_next_signal_message():
     global signal_index, top_cryptos_cache
 
     if not top_cryptos_cache:
-        top_cryptos_cache = await analyze_cryptos()
-        signal_index = 0
+        coin_data = await fetch_all_coin_data()
+        top_cryptos_cache = await analyze_cryptos(coin_data)
+
+    if not top_cryptos_cache:
+        return "⚠️ Нет подходящих монет для сигнала.", None, None
 
     if signal_index >= len(top_cryptos_cache):
         signal_index = 0
 
-    crypto = top_cryptos_cache[signal_index]
+    signal = top_cryptos_cache[signal_index]
     signal_index += 1
 
-    name = crypto["name"]
-    symbol = crypto["symbol"].upper()
-    price = crypto["price"]
-    target = crypto["target_price"]
-    stop_loss = crypto["stop_loss"]
-    probability = crypto["probability"]
-    reason = crypto.get("reason", "")
+    coin_id = signal["coin_id"]
+    name = escape_markdown(signal["name"])
+    symbol = escape_markdown(signal["symbol"])
+    current_price = signal["current_price"]
+    entry_price = round(current_price * 0.995, 4)
+    target_price = round(current_price * 1.05, 4)
+    stop_loss_price = round(current_price * 0.97, 4)
+    growth_probability = signal["growth_probability"]
+    rsi = signal.get("rsi", "N/A")
+    ma = signal.get("ma", "N/A")
+    price_change_24h = signal.get("price_change_percentage_24h", "N/A")
+
+    explanation = f"\n📈 RSI: {rsi}\n📊 MA: {ma}\n📉 24h: {price_change_24h}%"
 
     message = (
-        f"📈 *Сигнал на рост {symbol}*\n\n"
-        f"Монета: *{name} ({symbol})*\n"
-        f"Текущая цена: *${price}*\n"
-        f"Цель: *${target}* (+5%)\n"
-        f"Стоп-лосс: *${stop_loss}*\n"
-        f"Вероятность роста: *{probability}%*\n"
+        f"*💹 Сигнал на рост монеты: {name} ({symbol})*\n"
+        f"Вероятность роста: *{growth_probability}%*\n\n"
+        f"Цена входа: *{entry_price}*\n"
+        f"Цель (+5%): *{target_price}*\n"
+        f"Стоп-лосс: *{stop_loss_price}*"
+        f"{explanation}"
     )
 
-    if reason:
-        message += f"\nПричина: _{reason}_"
-
-    return message, name, price, target, stop_loss, probability
+    return message, coin_id, entry_price
 
 def reset_signal_index():
     global signal_index
