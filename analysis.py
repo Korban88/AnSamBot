@@ -1,6 +1,6 @@
 import statistics
 from crypto_utils import get_current_price, get_moving_average, get_rsi
-from crypto_list import crypto_list
+from crypto_list import CRYPTO_LIST
 
 def calculate_probability(change_24h, rsi, ma, price):
     score = 0
