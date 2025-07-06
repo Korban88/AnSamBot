@@ -14,7 +14,10 @@ async def get_next_signal_message():
 
     try:
         coin_ids = [coin['id'] for coin in CRYPTO_LIST]
-        coin_data = await fetch_all_coin_data(coin_ids)
+        raw_data = await fetch_all_coin_data(coin_ids)
+
+        # Преобразуем список в словарь: {coin_id: {данные}}
+        coin_data = {coin["id"]: coin for coin in raw_data}
 
         top_signals = await analyze_cryptos(coin_data)
 
@@ -26,9 +29,9 @@ async def get_next_signal_message():
         _signal_index += 1
 
         coin_id = signal["id"]
-        entry_price = signal["entry_price"]
-        target_price = signal["target_price"]
-        stop_loss = signal["stop_loss"]
+        entry_price = signal["price"]
+        target_price = round(entry_price * 1.05, 4)
+        stop_loss = round(entry_price * 0.97, 4)
         probability = signal["probability"]
 
         message = (
