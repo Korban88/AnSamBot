@@ -1,8 +1,8 @@
 import logging
 from aiogram import Bot, Dispatcher, executor, types
 from config import TELEGRAM_TOKEN, OWNER_ID
-from signal_utils import get_next_signal_message, reset_signal_index, stop_all_tracking
-from tracking import start_tracking  # лучше импортировать здесь, а не в хендлере
+from signal_utils import get_next_signal_message, reset_signal_index
+from tracking import stop_all_trackings
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TELEGRAM_TOKEN, parse_mode=types.ParseMode.MARKDOWN_V2)
@@ -23,7 +23,7 @@ async def handle_get_signal(message: types.Message):
 
 @dp.message_handler(lambda message: message.text == "Остановить все отслеживания")
 async def handle_stop_tracking(message: types.Message):
-    stop_all_tracking()
+    stop_all_trackings()
     await message.answer("❌ Все отслеживания остановлены.")
 
 @dp.message_handler(lambda message: message.text == "Старт")
@@ -34,7 +34,8 @@ async def handle_start_button(message: types.Message):
 async def handle_track_callback(callback_query: types.CallbackQuery):
     try:
         _, coin_id, entry_price = callback_query.data.split("_")
-        await start_tracking(bot, coin_id, float(entry_price))  # убрал лишний OWNER_ID
+        from tracking import start_tracking
+        await start_tracking(bot, coin_id, float(entry_price), OWNER_ID)
         await callback_query.answer("Монета добавлена в отслеживание.")
     except Exception as e:
         logging.error(f"Ошибка в callback track: {e}")
