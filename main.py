@@ -10,7 +10,7 @@ dp = Dispatcher(bot)
 
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
-    await message.answer("Добро пожаловать в новую жизнь, Корбан!", reply_markup=main_keyboard())
+    await message.answer("Добро пожаловать в новую жизнь, Корбан\\!", reply_markup=main_keyboard())
 
 @dp.message_handler(lambda message: message.text == "Получить ещё сигнал")
 async def handle_get_signal(message: types.Message):
