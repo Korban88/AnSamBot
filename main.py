@@ -1,6 +1,6 @@
 import logging
 from aiogram import Bot, Dispatcher, executor, types
-from config import TELEGRAM_TOKEN, OWNER_ID
+from config import TELEGRAM_TOKEN
 from keyboards import main_keyboard
 from signal_utils import get_next_signal_message, reset_signal_index
 from tracking import start_tracking
