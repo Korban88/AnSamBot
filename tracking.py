@@ -1,73 +1,75 @@
 import asyncio
-import httpx
 import logging
-from config import OWNER_ID
+import json
+from datetime import datetime, timedelta
 from crypto_utils import get_current_price
+from config import NOTIFICATION_INTERVAL_SECONDS, TRACKING_FILE
+from aiogram import Bot
 
-class CoinTracker:
-    def __init__(self, bot, coin, start_price):
-        self.bot = bot
-        self.coin = coin
-        self.start_price = start_price
-        self.tracking_time = 0  # в минутах
+bot = Bot(token="8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c")
 
-    async def track(self):
-        while self.tracking_time < 720:  # 12 часов = 720 минут
-            try:
-                current_price = await get_current_price(self.coin["id"])
-                if not current_price:
-                    logging.warning(f"Не удалось получить цену для {self.coin['symbol']}")
-                    break
+tracking_data = {}
 
-                percent_change = ((current_price - self.start_price) / self.start_price) * 100
+def save_tracking_data():
+    with open(TRACKING_FILE, "w") as f:
+        json.dump(tracking_data, f)
 
-                if percent_change >= 5:
-                    await self.bot.send_message(
-                        OWNER_ID,
-                        f"🚀 Монета {self.coin['symbol']} выросла на 5%!\n\n"
-                        f"🔹 Старт: {self.start_price:.4f} USD\n"
-                        f"🔹 Текущая цена: {current_price:.4f} USD\n"
-                        f"🔹 Рост: {percent_change:.2f}%"
-                    )
-                    break
+def load_tracking_data():
+    global tracking_data
+    try:
+        with open(TRACKING_FILE, "r") as f:
+            tracking_data = json.load(f)
+    except FileNotFoundError:
+        tracking_data = {}
 
-                elif percent_change >= 3.5:
-                    await self.bot.send_message(
-                        OWNER_ID,
-                        f"📈 Монета {self.coin['symbol']} приближается к цели: +3.5%\n\n"
-                        f"🔹 Старт: {self.start_price:.4f} USD\n"
-                        f"🔹 Текущая цена: {current_price:.4f} USD\n"
-                        f"🔹 Рост: {percent_change:.2f}%"
-                    )
+async def track_coin(user_id, coin_id, entry_price):
+    start_time = datetime.now()
+    logging.info(f"🚀 Старт отслеживания {coin_id} для {user_id} с цены {entry_price}")
 
-                self.tracking_time += 10
-                await asyncio.sleep(600)  # 10 минут
+    while True:
+        await asyncio.sleep(NOTIFICATION_INTERVAL_SECONDS)
+        current_price = await get_current_price(coin_id)
+        if current_price is None:
+            logging.warning(f"⚠️ Не удалось получить цену для {coin_id}")
+            continue
 
-            except Exception as e:
-                logging.error(f"Ошибка при отслеживании {self.coin['symbol']}: {e}")
-                break
+        price_change_percent = (current_price - entry_price) / entry_price * 100
+        elapsed_time = datetime.now() - start_time
 
-        # Если прошло 12 часов и цель не достигнута
-        if self.tracking_time >= 720:
-            final_price = await get_current_price(self.coin["id"])
-            if final_price:
-                final_change = ((final_price - self.start_price) / self.start_price) * 100
-                await self.bot.send_message(
-                    OWNER_ID,
-                    f"⏰ Прошло 12 часов. Монета {self.coin['symbol']} не достигла цели.\n\n"
-                    f"🔹 Старт: {self.start_price:.4f} USD\n"
-                    f"🔹 Конец: {final_price:.4f} USD\n"
-                    f"🔹 Изменение: {final_change:.2f}%"
-                )
+        if price_change_percent >= 5:
+            await bot.send_message(user_id, f"🎯 Монета {coin_id} выросла на +5%: {current_price:.4f} USD")
+            break
+        elif price_change_percent >= 3.5:
+            await bot.send_message(user_id, f"📈 Монета {coin_id} выросла на +3.5%: {current_price:.4f} USD")
+        elif elapsed_time >= timedelta(hours=12):
+            await bot.send_message(
+                user_id,
+                f"⏱ За 12 часов монета {coin_id} изменилась на {price_change_percent:.2f}%. "
+                f"Текущая цена: {current_price:.4f} USD"
+            )
+            break
 
-# Фоновый планировщик (используется в main.py)
-class CoinTrackingManager:
-    def __init__(self):
-        self.trackers = []
+async def start_tracking(coin_id, user_id):
+    current_price = await get_current_price(coin_id)
+    if current_price is None:
+        logging.warning(f"⚠️ Не удалось получить цену для {coin_id}")
+        return
 
-    def add_tracker(self, tracker):
-        self.trackers.append(tracker)
+    user_id_str = str(user_id)
+    tracking_data[user_id_str] = {
+        "coin_id": coin_id,
+        "entry_price": current_price,
+        "start_time": datetime.now().isoformat()
+    }
+    save_tracking_data()
 
-    async def run(self):
-        tasks = [tracker.track() for tracker in self.trackers]
-        await asyncio.gather(*tasks)
+    asyncio.create_task(track_coin(user_id, coin_id, current_price))
+
+def stop_all_tracking(user_id):
+    user_id_str = str(user_id)
+    if user_id_str in tracking_data:
+        del tracking_data[user_id_str]
+        save_tracking_data()
+        logging.info(f"🛑 Остановлено отслеживание для {user_id}")
+    else:
+        logging.info(f"❌ Нет активных отслеживаний для {user_id}")
