@@ -1,7 +1,7 @@
 import aiohttp
 import asyncio
 import time
-from crypto_list import TELEGRAM_WALLET_COINS
+from crypto_list import crypto_list
 
 API_BASE = "https://api.binance.com/api/v3"
 
@@ -28,7 +28,7 @@ async def fetch_coin_data(session, symbol):
 
 async def fetch_all_coin_data():
     async with aiohttp.ClientSession() as session:
-        tasks = [fetch_coin_data(session, coin) for coin in TELEGRAM_WALLET_COINS]
+        tasks = [fetch_coin_data(session, coin) for coin in crypto_list]
         results = await asyncio.gather(*tasks)
         return [r for r in results if r is not None]
 
