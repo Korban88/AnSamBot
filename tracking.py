@@ -1,69 +1,76 @@
-import json
-import os
+# tracking.py
+
+import asyncio
 import time
 from datetime import datetime
 from aiogram import Bot
-import asyncio
-
-from config import NOTIFICATION_INTERVAL_SECONDS, TRACKING_FILE, GROWTH_THRESHOLD_PERCENT, TARGET_PROFIT_PERCENT
+from config import TELEGRAM_USER_ID
 from crypto_utils import get_current_price
 
-# Загрузка активных трекингов
-def load_tracking_data():
-    if not os.path.exists(TRACKING_FILE):
-        return {}
-    with open(TRACKING_FILE, 'r') as f:
-        return json.load(f)
+# Хранилище активных отслеживаний
+active_trackings = {}
 
-# Сохранение трекингов
-def save_tracking_data(data):
-    with open(TRACKING_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
+# Настройки отслеживания
+CHECK_INTERVAL = 600  # каждые 10 минут
+PRICE_TARGET_1 = 1.035
+PRICE_TARGET_2 = 1.05
+MAX_TRACKING_DURATION = 12 * 60 * 60  # 12 часов в секундах
 
-# Запустить отслеживание монеты
-def start_tracking(coin_id: str, user_id: int, initial_price: float):
-    data = load_tracking_data()
-    data[coin_id] = {
-        'user_id': user_id,
-        'start_time': time.time(),
-        'initial_price': initial_price
-    }
-    save_tracking_data(data)
+async def track_price(bot: Bot, coin_id: str, entry_price: float):
+    start_time = time.time()
+    notified_3_5 = False
+    notified_5 = False
 
-# Остановить все трекинги
-def stop_all_tracking():
-    save_tracking_data({})
-
-# Асинхронная задача, которая запускается в фоне
-async def tracking_loop(bot: Bot):
     while True:
-        data = load_tracking_data()
-        updated_data = {}
-        for coin_id, info in data.items():
-            user_id = info['user_id']
-            start_time = info['start_time']
-            initial_price = info['initial_price']
+        current_price = await get_current_price(coin_id)
 
-            current_price = await get_current_price(coin_id)
-            if current_price is None:
-                continue
+        if current_price is None:
+            await bot.send_message(TELEGRAM_USER_ID, f"⚠️ Не удалось получить цену для {coin_id}. Отслеживание остановлено.")
+            break
 
-            percent_change = ((current_price - initial_price) / initial_price) * 100
+        price_change = current_price / entry_price
+        elapsed = time.time() - start_time
 
-            # Уведомление о росте +3.5% или +5%
-            if percent_change >= TARGET_PROFIT_PERCENT:
-                await bot.send_message(user_id, f"📈 Монета *{coin_id}* выросла на *{percent_change:.2f}%* 🚀", parse_mode='MarkdownV2')
-                continue  # не добавляем в updated_data — отслеживание завершено
-            elif percent_change >= GROWTH_THRESHOLD_PERCENT:
-                await bot.send_message(user_id, f"🔔 *{coin_id}* достигла +{GROWTH_THRESHOLD_PERCENT}% роста \\({percent_change:.2f}%\\)", parse_mode='MarkdownV2')
+        # Уведомление при +3.5%
+        if price_change >= PRICE_TARGET_1 and not notified_3_5:
+            await bot.send_message(
+                TELEGRAM_USER_ID,
+                f"📈 {coin_id.upper()} вырос на +3.5% от цены входа {entry_price:.4f} и сейчас стоит {current_price:.4f}."
+            )
+            notified_3_5 = True
 
-            # Проверка на 12 часов ожидания
-            elapsed_hours = (time.time() - start_time) / 3600
-            if elapsed_hours >= 12:
-                await bot.send_message(user_id, f"⏰ Прошло 12 часов с начала отслеживания *{coin_id}*. Изменение: *{percent_change:.2f}%*", parse_mode='MarkdownV2')
-                continue  # завершено
+        # Уведомление при +5%
+        if price_change >= PRICE_TARGET_2 and not notified_5:
+            await bot.send_message(
+                TELEGRAM_USER_ID,
+                f"🚀 {coin_id.upper()} достиг цели +5%!\nВход был: {entry_price:.4f}, сейчас: {current_price:.4f}"
+            )
+            notified_5 = True
+            break
 
-            updated_data[coin_id] = info
+        # Отчёт по истечении 12 часов
+        if elapsed >= MAX_TRACKING_DURATION:
+            percent_change = ((current_price - entry_price) / entry_price) * 100
+            await bot.send_message(
+                TELEGRAM_USER_ID,
+                f"⏱ Прошло 12 часов с начала отслеживания {coin_id.upper()}.\n"
+                f"Цена была: {entry_price:.4f}, сейчас: {current_price:.4f}\n"
+                f"Изменение: {percent_change:.2f}%"
+            )
+            break
 
-        save_tracking_data(updated_data)
-        await asyncio.sleep(NOTIFICATION_INTERVAL_SECONDS)
+        await asyncio.sleep(CHECK_INTERVAL)
+
+    # Удаляем отслеживание
+    if coin_id in active_trackings:
+        del active_trackings[coin_id]
+
+def start_tracking(bot: Bot, coin_id: str, entry_price: float):
+    if coin_id not in active_trackings:
+        task = asyncio.create_task(track_price(bot, coin_id, entry_price))
+        active_trackings[coin_id] = task
+
+def stop_all_trackings():
+    for task in active_trackings.values():
+        task.cancel()
+    active_trackings.clear()
