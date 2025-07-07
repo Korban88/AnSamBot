@@ -1,5 +1,6 @@
 [build]
-command = "pip install -r requirements.txt"
+command = "pip install --no-cache-dir -r requirements.txt"
 
 [deploy]
 command = "python main.py"
+timeout = 300  # Увеличиваем таймаут до 5 минут
