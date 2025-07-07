@@ -1,4 +1,4 @@
-*
-!main.py
-!config.py
-!requirements.txt
+*.pyc
+*.log
+.env
+__pycache__/
