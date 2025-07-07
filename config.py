@@ -1,11 +1,7 @@
 import os
 
-class Config:
-    def __init__(self):
-        self.TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-        self.OWNER_ID = os.getenv("OWNER_ID")
-        
-        if not self.TELEGRAM_TOKEN or not self.OWNER_ID:
-            raise ValueError("Не заданы обязательные переменные окружения")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c")
+OWNER_ID = os.getenv("OWNER_ID", "347552741")
 
-config = Config()
+if not TELEGRAM_TOKEN or not OWNER_ID:
+    print("⚠️ Внимание: Используются fallback-значения переменных!")
