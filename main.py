@@ -4,8 +4,7 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from core.database import Database
 from utils.scheduler import setup_scheduler
-from core.signal_generator import generate_top_signals
-from handlers import register_handlers
+from handlers import register_handlers  # Убедитесь, что файл handlers.py существует
 
 # Настройка логов
 logging.basicConfig(
@@ -20,31 +19,38 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def on_startup(dp):
-    logger.info("Бот запущен")
-    await dp.bot.send_message(os.getenv("OWNER_ID"), "🟢 Бот успешно запущен")
+    """Действия при запуске бота"""
+    try:
+        await dp.bot.send_message(os.getenv("OWNER_ID"), "🟢 Бот успешно запущен")
+        logger.info("Бот запущен")
+    except Exception as e:
+        logger.error(f"Ошибка при запуске: {e}")
 
 async def on_shutdown(dp):
-    logger.warning("Бот остановлен")
-    await dp.bot.send_message(os.getenv("OWNER_ID"), "🔴 Бот остановлен")
+    """Действия при остановке бота"""
+    try:
+        await dp.bot.send_message(os.getenv("OWNER_ID"), "🔴 Бот остановлен")
+        logger.warning("Бот остановлен")
+    except Exception as e:
+        logger.error(f"Ошибка при остановке: {e}")
 
 def main():
-    bot = Bot(token=os.getenv("TELEGRAM_TOKEN"))
-    dp = Dispatcher(bot, storage=MemoryStorage())
-    db = Database()
+    try:
+        bot = Bot(token=os.getenv("TELEGRAM_TOKEN"))
+        dp = Dispatcher(bot, storage=MemoryStorage())
+        db = Database()  # Инициализация БД
 
-    # Регистрация обработчиков
-    register_handlers(dp)
-    
-    # Планировщик ежедневных сигналов
-    setup_scheduler(bot)
+        register_handlers(dp)  # Регистрация команд
+        setup_scheduler(bot)   # Настройка расписания
 
-    # Запуск
-    executor.start_polling(
-        dp,
-        on_startup=on_startup,
-        on_shutdown=on_shutdown,
-        skip_updates=True
-    )
+        executor.start_polling(
+            dp,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown,
+            skip_updates=True
+        )
+    except Exception as e:
+        logger.critical(f"Критическая ошибка: {e}")
 
 if __name__ == '__main__':
     main()
