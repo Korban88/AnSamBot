@@ -1,15 +1,9 @@
 [build]
-command = "pip install -r requirements.txt && python -c 'import os; print(\"Токен:\", \"SET\" if os.getenv(\"TELEGRAM_TOKEN\") else \"NOT SET\")'"
+command = "pip install -r requirements.txt && pip install pydantic"
 
 [deploy]
 command = "python main.py"
-restart = "always"  # Автоматический перезапуск при падении
 
 [variables]
 TELEGRAM_TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 OWNER_ID = "347552741"
-
-[healthcheck]
-path = "/ping"  # Для будущей реализации вебхуков
-port = 8000
-initial_delay = 10
