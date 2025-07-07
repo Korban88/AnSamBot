@@ -1,12 +1,11 @@
 import os
-from pydantic import BaseSettings
 
-class Settings(BaseSettings):
-    TELEGRAM_TOKEN: str
-    OWNER_ID: int
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+class Config:
+    def __init__(self):
+        self.TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+        self.OWNER_ID = os.getenv("OWNER_ID")
+        
+        if not self.TELEGRAM_TOKEN or not self.OWNER_ID:
+            raise ValueError("Не заданы обязательные переменные окружения")
 
-config = Settings()
+config = Config()
