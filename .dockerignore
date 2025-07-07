@@ -1,0 +1,14 @@
+# Файлы для игнорирования
+.git/
+.github/
+__pycache__/
+*.log
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.env
+venv/
+env/
+tests/
+local_configs/
