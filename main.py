@@ -10,7 +10,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger('AnSamBot')
 
-bot = Bot(token=get_config()['token'], parse_mode="HTML")
+bot = Bot(token="8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c", parse_mode="HTML")
 dp = Dispatcher(bot)
 
 @dp.message_handler(commands=['start'])
