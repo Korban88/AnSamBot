@@ -9,10 +9,8 @@ async def fetch_coin_data(coin_id):
         async with session.get(url, headers=headers) as resp:
             data = await resp.json()
             return {
-                'id': coin_id,
                 'price': data['market_data']['current_price']['usd'],
                 'rsi': data['market_data']['rsi_14'],
-                'ma50': data['market_data']['moving_averages']['ma_50'],
-                '24h_change': data['market_data']['price_change_percentage_24h'],
-                'volume': data['market_data']['total_volume']['usd']
+                'ma200': data['market_data']['moving_averages']['ma_200'],
+                '24h_change': data['market_data']['price_change_percentage_24h']
             }
