@@ -54,3 +54,45 @@ def get_rsi(coin_id):
             "secret": "demo",  # заменим позже при необходимости
             "exchange": "binance",
             "symbol": f"{coin_id.upper()}/USDT",
+            "interval": "1h"
+        }
+        response = requests.get(url, params=params)
+        data = response.json()
+        rsi = float(data["value"])
+
+        if coin_id not in cache:
+            cache[coin_id] = {}
+        cache[coin_id]["rsi"] = {"value": rsi, "timestamp": now}
+        save_cache(cache)
+
+        return rsi
+    except:
+        return None
+
+def get_ma(coin_id):
+    cache = load_cache()
+    now = int(time.time())
+    if coin_id in cache and "ma" in cache[coin_id]:
+        if now - cache[coin_id]["ma"]["timestamp"] < 3600:  # 1 час кеш
+            return cache[coin_id]["ma"]["value"]
+
+    try:
+        url = f"https://api.taapi.io/ma"
+        params = {
+            "secret": "demo",  # заменим позже при необходимости
+            "exchange": "binance",
+            "symbol": f"{coin_id.upper()}/USDT",
+            "interval": "1h"
+        }
+        response = requests.get(url, params=params)
+        data = response.json()
+        ma = float(data["value"])
+
+        if coin_id not in cache:
+            cache[coin_id] = {}
+        cache[coin_id]["ma"] = {"value": ma, "timestamp": now}
+        save_cache(cache)
+
+        return ma
+    except:
+        return None
