@@ -7,66 +7,6 @@ import json
 import os
 import time
 
-def analyze_cryptos():
-    scored_cryptos = []
-
-    for coin_id in TELEGRAM_WALLET_CRYPTOS:
-        price = get_current_price(coin_id)
-        change_24h = get_24h_change(coin_id)
-        rsi = get_rsi(coin_id)
-        ma = get_ma(coin_id)
-
-        if None in (price, change_24h, rsi, ma):
-            continue
-
-        if change_24h < MAX_PRICE_DROP_24H:
-            continue  # отбрасываем монеты с падением более допустимого
-
-        score = 0
-
-        # RSI: чем ближе к 30, тем сильнее сигнал (перепроданность)
-        if rsi < 30:
-            score += 30
-        elif rsi < 40:
-            score += 20
-        elif rsi < 50:
-            score += 10
-
-        # MA: если цена выше скользящей — в пользу роста
-        if price > ma:
-            score += 25
-
-        # рост за 24ч: положительный прирост — в плюс
-        if change_24h > 0:
-            score += 15
-        elif -1 <= change_24h <= 0:
-            score += 5
-
-        # Общее усиление от цены (как индикатор тренда)
-        if price > 1:
-            score += min(price ** 0.2, 10)  # плавное усиление для крупных монет
-
-        probability = min(90.0, max(30.0, score))  # ограничение вероятности
-
-        if probability >= MIN_GROWTH_PROBABILITY:
-            scored_cryptos.append({
-                "id": coin_id,
-                "price": price,
-                "change_24h": change_24h,
-                "rsi": rsi,
-                "ma": ma,
-                "score": score,
-                "probability": round(probability, 1)
-            })
-
-    # Сортировка по убыванию вероятности
-    top_3 = sorted(scored_cryptos, key=lambda x: x["probability"], reverse=True)[:3]
-
-    # Кешируем результат
-    save_top3_cache(top_3)
-
-    return top_3
-
 def save_top3_cache(top3):
     cache = {
         "timestamp": int(time.time()),
@@ -87,3 +27,82 @@ def load_top3_cache(max_age_seconds=3600):
         return []
 
     return data.get("top3", [])
+
+def analyze_cryptos():
+    scored_cryptos = []
+    diagnostics = []
+
+    for coin_id in TELEGRAM_WALLET_CRYPTOS:
+        price = get_current_price(coin_id)
+        change_24h = get_24h_change(coin_id)
+        rsi = get_rsi(coin_id)
+        ma = get_ma(coin_id)
+
+        if None in (price, change_24h, rsi, ma):
+            diagnostics.append(f"🔴 {coin_id} — недоступны данные")
+            continue
+
+        if change_24h < MAX_PRICE_DROP_24H:
+            diagnostics.append(f"⚠️ {coin_id} — падение {change_24h:.2f}% за 24ч")
+            continue
+
+        score = 0
+
+        # RSI: чем ниже, тем лучше
+        if rsi < 30:
+            score += 30
+        elif rsi < 40:
+            score += 20
+        elif rsi < 50:
+            score += 10
+
+        # Скользящая средняя
+        if price > ma:
+            score += 25
+
+        # Изменение за 24ч
+        if change_24h > 0:
+            score += 15
+        elif -1 <= change_24h <= 0:
+            score += 5
+
+        # Масштабирование по цене
+        if price > 1:
+            score += min(price ** 0.2, 10)
+
+        # Перевод в вероятность
+        probability = round(min(95.0, max(35.0, score)), 1)
+
+        if probability >= MIN_GROWTH_PROBABILITY:
+            scored_cryptos.append({
+                "id": coin_id,
+                "price": price,
+                "change_24h": change_24h,
+                "rsi": rsi,
+                "ma": ma,
+                "score": score,
+                "probability": probability
+            })
+        else:
+            diagnostics.append(f"⚪ {coin_id} — низкая вероятность: {probability}%")
+
+    if not scored_cryptos:
+        # Для вывода диагностики в Telegram
+        scored_cryptos.append({
+            "id": "diagnostics",
+            "details": diagnostics
+        })
+
+    top_3 = sorted(
+        [c for c in scored_cryptos if c["id"] != "diagnostics"],
+        key=lambda x: x["probability"],
+        reverse=True
+    )[:3]
+
+    if not top_3 and diagnostics:
+        print("🔍 Диагностика анализа монет:")
+        for msg in diagnostics:
+            print(msg)
+
+    save_top3_cache(top_3)
+    return top_3
