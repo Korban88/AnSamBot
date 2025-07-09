@@ -3,7 +3,7 @@
 import logging
 import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext, CallbackQueryHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 from config import TELEGRAM_BOT_TOKEN
 from analysis import analyze_cryptos, load_top3_cache
 from crypto_utils import get_current_price
@@ -14,14 +14,14 @@ used_signals = []
 
 logging.basicConfig(level=logging.INFO)
 
-async def start(update: Update, context: CallbackContext.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📊 Получить сигнал", callback_data="get_signal")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
 
-async def button_handler(update: Update, context: CallbackContext.DEFAULT_TYPE):
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
@@ -34,7 +34,7 @@ async def button_handler(update: Update, context: CallbackContext.DEFAULT_TYPE):
         await query.message.reply_text(f"⏳ Начинаю отслеживание монеты *{coin_id}*...", parse_mode="Markdown")
         asyncio.create_task(track_price(context.bot, coin_id))
 
-async def send_next_signal(query, context):
+async def send_next_signal(query, context: ContextTypes.DEFAULT_TYPE):
     top3 = load_top3_cache()
     if not top3:
         top3 = analyze_cryptos()
