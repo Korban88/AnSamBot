@@ -3,7 +3,6 @@ import time
 from collections import defaultdict
 from crypto_utils import get_current_price
 from config import OWNER_ID
-from aiogram import Bot
 
 # Структура: user_id -> list of dicts with coin_id, start_price, start_time
 active_trackings = defaultdict(list)
@@ -11,7 +10,7 @@ active_trackings = defaultdict(list)
 CHECK_INTERVAL = 600  # 10 минут
 TIMEOUT = 12 * 3600  # 12 часов
 
-bot = None  # будет установлен извне
+bot = None  # будет установлен извне через set_bot_instance()
 
 
 def set_bot_instance(bot_instance):
@@ -52,7 +51,7 @@ async def tracking_loop():
                         f"🚀 Монета *{coin_id}* выросла на +5%!\n"
                         f"Текущая цена: *{current_price:.4f}* USD",
                         parse_mode="Markdown")
-                    continue  # не добавляем в updated_coins → удаляем из списка
+                    continue
 
                 elif change_pct >= 3.5:
                     await bot.send_message(user_id,
@@ -66,7 +65,7 @@ async def tracking_loop():
                         f"Изменение цены: *{change_pct:.2f}%*\n"
                         f"Текущая цена: *{current_price:.4f}* USD",
                         parse_mode="Markdown")
-                    continue  # не добавляем → удаляем
+                    continue
 
                 updated_coins.append(coin)
 
