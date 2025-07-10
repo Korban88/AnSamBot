@@ -1,117 +1,83 @@
+# crypto_utils.py
+
 import httpx
 import time
 import json
-import os
-from crypto_list import TELEGRAM_WALLET_CRYPTOS
+from config import INDICATORS_CACHE_FILE
 
-CACHE_FILE = "price_cache.json"
-CACHE_TTL = 300  # 5 минут
+BASE_URL = "https://api.coingecko.com/api/v3"
+HEADERS = {"accept": "application/json"}
 
-def _load_cache():
-    if not os.path.exists(CACHE_FILE):
-        return {}
-    with open(CACHE_FILE, "r") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return {}
+# Загружаем кэш или создаем пустой
+try:
+    with open(INDICATORS_CACHE_FILE, "r") as f:
+        indicators_cache = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    indicators_cache = {}
 
-def _save_cache(data):
-    with open(CACHE_FILE, "w") as f:
-        json.dump(data, f)
+def save_cache():
+    with open(INDICATORS_CACHE_FILE, "w") as f:
+        json.dump(indicators_cache, f)
 
-def _fetch_market_data_block(coin_ids_block):
-    url = "https://api.coingecko.com/api/v3/coins/markets"
-    params = {
-        "vs_currency": "usd",
-        "ids": ",".join(coin_ids_block),
-        "price_change_percentage": "24h"
-    }
-
+def fetch_market_data(coin_id):
+    url = f"{BASE_URL}/coins/markets"
+    params = {"vs_currency": "usd", "ids": coin_id, "price_change_percentage": "24h"}
     try:
-        response = httpx.get(url, params=params, timeout=10)
+        response = httpx.get(url, headers=HEADERS, timeout=10)
         response.raise_for_status()
-        return response.json()
-    except httpx.RequestError as e:
-        print(f"Ошибка запроса: {e}")
-        return []
+        data = response.json()
+        return data[0] if data else None
     except httpx.HTTPStatusError as e:
-        print(f"Ошибка статуса: {e.response.status_code}")
-        return []
+        print(f"HTTP error for {coin_id}: {e.response.status_code}")
+    except Exception as e:
+        print(f"Error fetching market data for {coin_id}: {e}")
+    return None
 
-def _update_cache_all():
-    all_ids = TELEGRAM_WALLET_CRYPTOS
-    blocks = [all_ids[i:i + 10] for i in range(0, len(all_ids), 10)]
-
-    combined_data = []
-    for block in blocks:
-        data = _fetch_market_data_block(block)
-        if data:
-            combined_data.extend(data)
-        time.sleep(1.5)  # пауза между запросами, чтобы не ловить 429
-
-    if not combined_data:
-        return {}
-
-    cache = _load_cache()
-    timestamp = int(time.time())
-
-    for coin in combined_data:
-        coin_id = coin["id"]
-        cache[coin_id] = {
-            "timestamp": timestamp,
-            "price": coin.get("current_price"),
-            "change_24h": coin.get("price_change_percentage_24h"),
-            "rsi": _simulate_rsi(coin),
-            "ma": coin.get("moving_average_200d") or coin.get("current_price")  # заглушка
-        }
-
-    _save_cache(cache)
-    return cache
-
-def _simulate_rsi(coin):
-    change = coin.get("price_change_percentage_24h", 0)
-    if change is None:
-        return 50
-    if change > 5:
-        return 25 + (50 - min(change * 2, 50))
-    elif change < -5:
-        return 70 + min(abs(change * 2), 30)
-    return 50
-
-def _get_cached_value(coin_id, field):
-    cache = _load_cache()
-    entry = cache.get(coin_id)
-    if not entry:
-        return None
-    if int(time.time()) - entry["timestamp"] > CACHE_TTL:
-        return None
-    return entry.get(field)
+def fetch_rsi_ma(coin_id):
+    # Простейшая заглушка вместо настоящего RSI и MA
+    # При желании можно подключить TA API или TradingView
+    return round(30 + hash(coin_id) % 40, 2), round(1 + (hash(coin_id[::-1]) % 500) / 100, 2)
 
 def get_current_price(coin_id):
-    value = _get_cached_value(coin_id, "price")
-    if value is None:
-        _update_cache_all()
-        value = _get_cached_value(coin_id, "price")
-    return value
+    if coin_id in indicators_cache and "price" in indicators_cache[coin_id]:
+        return indicators_cache[coin_id]["price"]
+
+    data = fetch_market_data(coin_id)
+    if not data:
+        return None
+
+    price = data.get("current_price")
+    indicators_cache.setdefault(coin_id, {})["price"] = price
+    save_cache()
+    return price
 
 def get_24h_change(coin_id):
-    value = _get_cached_value(coin_id, "change_24h")
-    if value is None:
-        _update_cache_all()
-        value = _get_cached_value(coin_id, "change_24h")
-    return value
+    if coin_id in indicators_cache and "change_24h" in indicators_cache[coin_id]:
+        return indicators_cache[coin_id]["change_24h"]
+
+    data = fetch_market_data(coin_id)
+    if not data:
+        return None
+
+    change = data.get("price_change_percentage_24h")
+    indicators_cache.setdefault(coin_id, {})["change_24h"] = change
+    save_cache()
+    return change
 
 def get_rsi(coin_id):
-    value = _get_cached_value(coin_id, "rsi")
-    if value is None:
-        _update_cache_all()
-        value = _get_cached_value(coin_id, "rsi")
-    return value
+    if coin_id in indicators_cache and "rsi" in indicators_cache[coin_id]:
+        return indicators_cache[coin_id]["rsi"]
+
+    rsi, _ = fetch_rsi_ma(coin_id)
+    indicators_cache.setdefault(coin_id, {})["rsi"] = rsi
+    save_cache()
+    return rsi
 
 def get_ma(coin_id):
-    value = _get_cached_value(coin_id, "ma")
-    if value is None:
-        _update_cache_all()
-        value = _get_cached_value(coin_id, "ma")
-    return value
+    if coin_id in indicators_cache and "ma" in indicators_cache[coin_id]:
+        return indicators_cache[coin_id]["ma"]
+
+    _, ma = fetch_rsi_ma(coin_id)
+    indicators_cache.setdefault(coin_id, {})["ma"] = ma
+    save_cache()
+    return ma
