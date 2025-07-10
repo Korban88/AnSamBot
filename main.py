@@ -5,7 +5,7 @@ import time
 import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-from config import TELEGRAM_TOKEN, OWNER_ID
+from config import TELEGRAM_BOT_TOKEN as TELEGRAM_TOKEN, OWNER_ID
 from analysis import analyze_cryptos, load_top3_cache
 from tracking import start_tracking_coin, stop_all_tracking
 
