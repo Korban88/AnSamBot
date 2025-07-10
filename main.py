@@ -7,6 +7,7 @@ from config import TELEGRAM_BOT_TOKEN as TELEGRAM_TOKEN, OWNER_ID
 from analysis import analyze_cryptos, load_top3_cache
 from tracking import start_tracking_coin, stop_all_tracking
 from crypto_utils import fetch_and_cache_indicators
+from telegram.helpers import escape_markdown
 
 logging.basicConfig(level=logging.INFO)
 user_signal_index = {}
@@ -41,13 +42,13 @@ async def get_signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_price = round(price * 1.05, 4)
     stop_loss = round(price * 0.97, 4)
     message = (
-        f"*🟢 Сигнал на рост: {escape_markdown(coin['id'].capitalize())}*\n"
-        f"Цена: {escape_markdown(str(price))}\n"
-        f"24ч: {escape_markdown(str(coin['change_24h']))}%\n"
-        f"RSI: {escape_markdown(str(coin['rsi']))} | MA: {escape_markdown(str(coin['ma']))}\n"
-        f"🎯 Цель: {escape_markdown(str(target_price))}\n"
-        f"🛑 Стоп-лосс: {escape_markdown(str(stop_loss))}\n"
-        f"📈 Вероятность роста: *{escape_markdown(str(coin['probability']))}%*"
+        f"*🟢 Сигнал на рост: {escape_markdown(coin['id'].capitalize(), version=2)}*\n"
+        f"Цена: {escape_markdown(str(price), version=2)}\n"
+        f"24ч: {escape_markdown(str(coin['change_24h']), version=2)}%\n"
+        f"RSI: {escape_markdown(str(coin['rsi']), version=2)} \\| MA: {escape_markdown(str(coin['ma']), version=2)}\n"
+        f"🎯 Цель: {escape_markdown(str(target_price), version=2)}\n"
+        f"🛑 Стоп-лосс: {escape_markdown(str(stop_loss), version=2)}\n"
+        f"📈 Вероятность роста: *{escape_markdown(str(coin['probability']), version=2)}%*"
     )
 
     keyboard = [[InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{coin['id']}")]]
