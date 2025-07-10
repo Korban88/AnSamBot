@@ -1,93 +1,81 @@
-# main.py (с диагностикой)
+# main.py
 
 import logging
-import asyncio
+import time
+import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-from config import TELEGRAM_BOT_TOKEN
+from config import TELEGRAM_TOKEN, OWNER_ID
 from analysis import analyze_cryptos, load_top3_cache
-from crypto_utils import get_current_price
-from tracking import track_price
-from crypto_list import TELEGRAM_WALLET_CRYPTOS
-from crypto_utils import get_24h_change, get_rsi, get_ma
-
-used_signals = []
+from tracking import start_tracking_coin, stop_all_tracking
 
 logging.basicConfig(level=logging.INFO)
+user_signal_index = {}
+
+def escape_markdown(text):
+    escape_chars = r"\_*[]()~`>#+-=|{}.!"
+    return "".join(f"\\{c}" if c in escape_chars else c for c in str(text))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("📊 Получить сигнал", callback_data="get_signal")]
-    ]
+    keyboard = [[InlineKeyboardButton("📊 Получить сигнал", callback_data="get_signal")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
+
+async def get_signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in user_signal_index:
+        user_signal_index[user_id] = 0
+
+    top_3 = load_top3_cache()
+    if not top_3:
+        top_3 = analyze_cryptos()
+
+    if not top_3:
+        await update.callback_query.message.reply_text("🚫 Нет доступных сигналов. Попробуйте позже.")
+        return
+
+    index = user_signal_index[user_id] % len(top_3)
+    coin = top_3[index]
+    user_signal_index[user_id] += 1
+
+    price = coin["price"]
+    target_price = round(price * 1.05, 4)
+    stop_loss = round(price * 0.97, 4)
+    message = (
+        f"*🟢 Сигнал на рост: {escape_markdown(coin['id'].capitalize())}*\n"
+        f"Цена: {price}\n"
+        f"24ч: {coin['change_24h']}%\n"
+        f"RSI: {coin['rsi']} | MA: {coin['ma']}\n"
+        f"🎯 Цель: {target_price}\n"
+        f"🛑 Стоп-лосс: {stop_loss}\n"
+        f"📈 Вероятность роста: *{coin['probability']}%*"
+    )
+
+    keyboard = [[InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{coin['id']}")]]
+    await update.callback_query.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="MarkdownV2")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "get_signal":
-        await send_diagnostic_report(query, context)
+    if query.data.startswith("track_"):
+        coin_id = query.data.split("_", 1)[1]
+        await start_tracking_coin(coin_id, query.message.chat_id, context.bot)
 
-    elif query.data.startswith("track_"):
-        coin_id = query.data.replace("track_", "")
-        await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text(f"⏳ Начинаю отслеживание монеты *{coin_id}*...", parse_mode="Markdown")
-        asyncio.create_task(track_price(context.bot, coin_id))
+    elif query.data == "get_signal":
+        await get_signal(update, context)
 
-async def send_diagnostic_report(query, context: ContextTypes.DEFAULT_TYPE):
-    text = "*🔍 Диагностика анализа монет:*\n"
-    ok = False
+async def stop_tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await stop_all_tracking(update.effective_chat.id, context.bot)
+    await update.message.reply_text("⛔ Все отслеживания остановлены.")
 
-    for coin_id in TELEGRAM_WALLET_CRYPTOS[:10]:  # первые 10 монет для теста
-        try:
-            price = get_current_price(coin_id)
-            change_24h = get_24h_change(coin_id)
-            rsi = get_rsi(coin_id)
-            ma = get_ma(coin_id)
-
-            if None in (price, change_24h, rsi, ma):
-                text += f"⛔ `{coin_id}` — недоступны данные\n"
-                continue
-
-            score = 0
-            if rsi < 30:
-                score += 30
-            elif rsi < 40:
-                score += 20
-            elif rsi < 50:
-                score += 10
-
-            if price > ma:
-                score += 25
-            if change_24h > 0:
-                score += 15
-            elif -1 <= change_24h <= 0:
-                score += 5
-
-            if price > 1:
-                score += min(price ** 0.2, 10)
-
-            prob = min(90.0, max(30.0, score))
-
-            text += (
-                f"\n✅ `{coin_id}`\n"
-                f"Цена: ${price:.4f}\n"
-                f"24ч: {change_24h:+.2f}%\n"
-                f"RSI: {rsi:.1f} | MA: {ma:.4f}\n"
-                f"Score: {score:.1f} | Вероятность: {prob:.1f}%\n"
-            )
-            ok = True
-        except Exception as e:
-            text += f"💥 `{coin_id}` — ошибка: {e}\n"
-
-    await query.message.reply_text(text, parse_mode="Markdown")
+def main():
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stop", stop_tracking))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    logging.info("🚀 Бот запущен")
+    app.run_polling()
 
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-
-    print("Бот запущен...")
-    app.run_polling()
+    main()
