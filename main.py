@@ -42,12 +42,12 @@ async def get_signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stop_loss = round(price * 0.97, 4)
     message = (
         f"*🟢 Сигнал на рост: {escape_markdown(coin['id'].capitalize())}*\n"
-        f"Цена: {price}\n"
-        f"24ч: {coin['change_24h']}%\n"
-        f"RSI: {coin['rsi']} | MA: {coin['ma']}\n"
-        f"🎯 Цель: {target_price}\n"
-        f"🛑 Стоп-лосс: {stop_loss}\n"
-        f"📈 Вероятность роста: *{coin['probability']}%*"
+        f"Цена: {escape_markdown(str(price))}\n"
+        f"24ч: {escape_markdown(str(coin['change_24h']))}%\n"
+        f"RSI: {escape_markdown(str(coin['rsi']))} | MA: {escape_markdown(str(coin['ma']))}\n"
+        f"🎯 Цель: {escape_markdown(str(target_price))}\n"
+        f"🛑 Стоп-лосс: {escape_markdown(str(stop_loss))}\n"
+        f"📈 Вероятность роста: *{escape_markdown(str(coin['probability']))}%*"
     )
 
     keyboard = [[InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{coin['id']}")]]
