@@ -1,6 +1,6 @@
 # crypto_list.py
 
-# Валидные ID монет в Telegram Wallet (проверено на CoinGecko)
+# Валидные ID монет из Telegram Wallet, проверенные на CoinGecko
 TELEGRAM_WALLET_CRYPTOS = [
     "bitcoin",
     "ethereum",
@@ -8,7 +8,6 @@ TELEGRAM_WALLET_CRYPTOS = [
     "tether",
     "usd-coin",
     "binancecoin",
-    "the-open-network",
     "dogecoin",
     "tron",
     "litecoin",
@@ -45,7 +44,7 @@ TELEGRAM_WALLET_CRYPTOS = [
     "iota",
     "kava",
     "waves",
-    "terra-luna",
+    "terra-luna",  # Внимание: это не terra-luna-classic (LUNC)
     "neo",
     "celo",
     "qtum",
