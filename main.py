@@ -5,7 +5,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 from analysis import analyze_cryptos
 from tracking import start_tracking_coin, stop_all_tracking
-from config import TELEGRAM_TOKEN, OWNER_ID
+from config import TELEGRAM_BOT_TOKEN as TELEGRAM_TOKEN, OWNER_ID
 
 # Экранирование MarkdownV2
 def escape_markdown_v2(text):
