@@ -4,7 +4,7 @@ import asyncio
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 from analysis import analyze_cryptos
-from tracking import start_tracking, stop_all_trackings
+from tracking import start_tracking_coin, stop_all_trackings
 from config import TELEGRAM_TOKEN, OWNER_ID
 
 # Экранирование MarkdownV2
@@ -68,7 +68,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("⛔ Все отслеживания остановлены.")
     elif query.data.startswith("track:"):
         coin_id = query.data.split(":")[1]
-        await start_tracking(coin_id, context, OWNER_ID)
+        await start_tracking_coin(coin_id, context, OWNER_ID)
         await query.message.reply_text(f"📡 Начато отслеживание {coin_id}")
 
 # Запуск бота
