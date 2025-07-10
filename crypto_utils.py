@@ -1,98 +1,110 @@
 # crypto_utils.py
 
-import requests
+import httpx
 import time
 import json
 import os
-from config import INDICATORS_CACHE_FILE
 
-COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
+CACHE_FILE = "price_cache.json"
+CACHE_TTL = 300  # 5 минут
 
-HEADERS = {
-    'accept': 'application/json'
-}
-
-def load_cache():
-    if os.path.exists(INDICATORS_CACHE_FILE):
-        with open(INDICATORS_CACHE_FILE, "r") as f:
+def _load_cache():
+    if not os.path.exists(CACHE_FILE):
+        return {}
+    with open(CACHE_FILE, "r") as f:
+        try:
             return json.load(f)
-    return {}
+        except json.JSONDecodeError:
+            return {}
 
-def save_cache(cache):
-    with open(INDICATORS_CACHE_FILE, "w") as f:
-        json.dump(cache, f)
+def _save_cache(data):
+    with open(CACHE_FILE, "w") as f:
+        json.dump(data, f)
+
+def _fetch_market_data(coin_ids):
+    url = "https://api.coingecko.com/api/v3/coins/markets"
+    params = {
+        "vs_currency": "usd",
+        "ids": ",".join(coin_ids),
+        "price_change_percentage": "24h"
+    }
+
+    try:
+        response = httpx.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        print(f"Ошибка запроса: {e}")
+        return []
+    except httpx.HTTPStatusError as e:
+        print(f"Ошибка статуса: {e.response.status_code}")
+        return []
+
+def _update_cache(coin_ids):
+    fresh_data = _fetch_market_data(coin_ids)
+    if not fresh_data:
+        return {}
+
+    cache = _load_cache()
+    timestamp = int(time.time())
+
+    for coin in fresh_data:
+        coin_id = coin["id"]
+        cache[coin_id] = {
+            "timestamp": timestamp,
+            "price": coin.get("current_price"),
+            "change_24h": coin.get("price_change_percentage_24h"),
+            "rsi": _simulate_rsi(coin),
+            "ma": coin.get("moving_average_200d") or coin.get("current_price")  # заглушка, если нет MA
+        }
+
+    _save_cache(cache)
+    return cache
+
+def _simulate_rsi(coin):
+    # Заглушка RSI, так как CoinGecko не даёт RSI напрямую
+    change = coin.get("price_change_percentage_24h", 0)
+    if change is None:
+        return 50
+    if change > 5:
+        return 25 + (50 - min(change * 2, 50))  # перепроданность
+    elif change < -5:
+        return 70 + min(abs(change * 2), 30)
+    return 50
+
+def _get_cached_value(coin_id, field):
+    cache = _load_cache()
+    entry = cache.get(coin_id)
+    if not entry:
+        return None
+    if int(time.time()) - entry["timestamp"] > CACHE_TTL:
+        return None
+    return entry.get(field)
 
 def get_current_price(coin_id):
-    try:
-        url = f"{COINGECKO_API_URL}/simple/price"
-        params = {"ids": coin_id, "vs_currencies": "usd"}
-        response = requests.get(url, params=params, headers=HEADERS)
-        data = response.json()
-        return data[coin_id]["usd"]
-    except:
-        return None
+    price = _get_cached_value(coin_id, "price")
+    if price is None:
+        _update_cache([coin_id])
+        price = _get_cached_value(coin_id, "price")
+    return price
 
 def get_24h_change(coin_id):
-    try:
-        url = f"{COINGECKO_API_URL}/coins/{coin_id}"
-        response = requests.get(url, headers=HEADERS)
-        data = response.json()
-        return data["market_data"]["price_change_percentage_24h"]
-    except:
-        return None
+    change = _get_cached_value(coin_id, "change_24h")
+    if change is None:
+        _update_cache([coin_id])
+        change = _get_cached_value(coin_id, "change_24h")
+    return change
 
 def get_rsi(coin_id):
-    cache = load_cache()
-    now = int(time.time())
-    if coin_id in cache and "rsi" in cache[coin_id]:
-        if now - cache[coin_id]["rsi"]["timestamp"] < 3600:  # 1 час кеш
-            return cache[coin_id]["rsi"]["value"]
-
-    try:
-        url = f"https://api.taapi.io/rsi"
-        params = {
-            "secret": "demo",  # заменим позже при необходимости
-            "exchange": "binance",
-            "symbol": f"{coin_id.upper()}/USDT",
-            "interval": "1h"
-        }
-        response = requests.get(url, params=params)
-        data = response.json()
-        rsi = float(data["value"])
-
-        if coin_id not in cache:
-            cache[coin_id] = {}
-        cache[coin_id]["rsi"] = {"value": rsi, "timestamp": now}
-        save_cache(cache)
-
-        return rsi
-    except:
-        return None
+    rsi = _get_cached_value(coin_id, "rsi")
+    if rsi is None:
+        _update_cache([coin_id])
+        rsi = _get_cached_value(coin_id, "rsi")
+    return rsi
 
 def get_ma(coin_id):
-    cache = load_cache()
-    now = int(time.time())
-    if coin_id in cache and "ma" in cache[coin_id]:
-        if now - cache[coin_id]["ma"]["timestamp"] < 3600:  # 1 час кеш
-            return cache[coin_id]["ma"]["value"]
-
-    try:
-        url = f"https://api.taapi.io/ma"
-        params = {
-            "secret": "demo",  # заменим позже при необходимости
-            "exchange": "binance",
-            "symbol": f"{coin_id.upper()}/USDT",
-            "interval": "1h"
-        }
-        response = requests.get(url, params=params)
-        data = response.json()
-        ma = float(data["value"])
-
-        if coin_id not in cache:
-            cache[coin_id] = {}
-        cache[coin_id]["ma"] = {"value": ma, "timestamp": now}
-        save_cache(cache)
-
-        return ma
-    except:
-        return None
+    ma = _get_cached_value(coin_id, "ma")
+    if ma is None:
+        _update_cache([coin_id])
+        ma = _get_cached_value(coin_id, "ma")
+    return ma
