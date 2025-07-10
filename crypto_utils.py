@@ -1,53 +1,73 @@
 import httpx
-import json, time, os
+import json
+import time
+import os
 from config import INDICATORS_CACHE_FILE
 from crypto_list import TELEGRAM_WALLET_CRYPTOS
 
 def load_indicators():
     if os.path.exists(INDICATORS_CACHE_FILE):
-        try:
-            return json.load(open(INDICATORS_CACHE_FILE))
-        except:
-            return {}
+        with open(INDICATORS_CACHE_FILE, "r") as f:
+            return json.load(f)
     return {}
+
+def get_current_price(coin_id):
+    indicators = load_indicators()
+    return indicators.get(coin_id, {}).get("price")
+
+def get_24h_change(coin_id):
+    indicators = load_indicators()
+    return indicators.get(coin_id, {}).get("change_24h")
+
+def get_rsi(coin_id):
+    indicators = load_indicators()
+    return indicators.get(coin_id, {}).get("rsi")
+
+def get_ma(coin_id):
+    indicators = load_indicators()
+    return indicators.get(coin_id, {}).get("ma")
 
 def fetch_and_cache_indicators():
     indicators = {}
-    batch_size = 5
+
+    batch_size = 30
     for i in range(0, len(TELEGRAM_WALLET_CRYPTOS), batch_size):
-        batch = TELEGRAM_WALLET_CRYPTOS[i:i+batch_size]
+        batch = TELEGRAM_WALLET_CRYPTOS[i:i + batch_size]
         ids = ",".join(batch)
+
         try:
-            resp = httpx.get(
-                "https://api.coingecko.com/api/v3/coins/markets",
-                params={"vs_currency":"usd", "ids":ids, "price_change_percentage":"24h"},
-                timeout=10
-            )
-            if resp.status_code != 200:
-                print(f"⛔ HTTP {resp.status_code} for batch {batch}")
-            else:
-                for coin in resp.json():
-                    indicators[coin["id"]] = {
-                        "price": coin.get("current_price"),
-                        "change_24h": coin.get("price_change_percentage_24h"),
-                        "rsi": 50.0,
-                        "ma": coin.get("current_price")
+            url = "https://api.coingecko.com/api/v3/simple/price"
+            params = {
+                "ids": ids,
+                "vs_currencies": "usd",
+                "include_24hr_change": "true"
+            }
+            response = httpx.get(url, params=params, timeout=10)
+
+            if response.status_code != 200:
+                print(f"Ошибка статуса: {response.status_code}")
+                continue
+
+            data = response.json()
+
+            for coin_id in batch:
+                coin_data = data.get(coin_id)
+                if coin_data:
+                    indicators[coin_id] = {
+                        "price": coin_data.get("usd"),
+                        "change_24h": coin_data.get("usd_24h_change"),
+                        "rsi": 50.0,  # Заглушка
+                        "ma": coin_data.get("usd"),  # Заглушка
                     }
-            time.sleep(3)
+                else:
+                    print(f"🔴 {coin_id} — нет данных в ответе CoinGecko")
+
+            time.sleep(1)  # Анти-спам защита
+
         except Exception as e:
-            print("Ошибка при запросе:", e)
+            print(f"❌ Ошибка при получении данных: {e}")
 
-    json.dump(indicators, open(INDICATORS_CACHE_FILE, "w"), indent=2)
+    with open(INDICATORS_CACHE_FILE, "w") as f:
+        json.dump(indicators, f, indent=2)
+
     print(f"✅ Индикаторы сохранены в {INDICATORS_CACHE_FILE}")
-
-def get_current_price(cid):
-    return load_indicators().get(cid, {}).get("price")
-
-def get_24h_change(cid):
-    return load_indicators().get(cid, {}).get("change_24h")
-
-def get_rsi(cid):
-    return load_indicators().get(cid, {}).get("rsi")
-
-def get_ma(cid):
-    return load_indicators().get(cid, {}).get("ma")
