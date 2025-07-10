@@ -1,5 +1,3 @@
-# main.py
-
 import logging
 import time
 import json
@@ -8,6 +6,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 from config import TELEGRAM_BOT_TOKEN as TELEGRAM_TOKEN, OWNER_ID
 from analysis import analyze_cryptos, load_top3_cache
 from tracking import start_tracking_coin, stop_all_tracking
+from crypto_utils import fetch_and_cache_indicators
 
 logging.basicConfig(level=logging.INFO)
 user_signal_index = {}
@@ -70,6 +69,8 @@ async def stop_tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⛔ Все отслеживания остановлены.")
 
 def main():
+    fetch_and_cache_indicators()  # Загрузка индикаторов в кеш
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stop", stop_tracking))
