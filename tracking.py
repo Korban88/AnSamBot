@@ -1,71 +1,75 @@
-# tracking.py
-
 import asyncio
 import time
-from config import OWNER_ID
+from collections import defaultdict
 from crypto_utils import get_current_price
-from telegram import Bot
+from config import OWNER_ID
+from aiogram import Bot
 
-# {coin_id: {"start_price": ..., "start_time": ...}}
-active_trackings = {}
+# Структура: user_id -> list of dicts with coin_id, start_price, start_time
+active_trackings = defaultdict(list)
 
-async def track_price(bot: Bot, coin_id: str):
-    if coin_id in active_trackings:
-        return  # Уже отслеживается
+CHECK_INTERVAL = 600  # 10 минут
+TIMEOUT = 12 * 3600  # 12 часов
 
-    start_price = get_current_price(coin_id)
-    if not start_price:
-        return
+bot = None  # будет установлен извне
 
-    active_trackings[coin_id] = {
+
+def set_bot_instance(bot_instance):
+    global bot
+    bot = bot_instance
+
+
+def start_tracking_coin(coin_id, user_id, start_price):
+    active_trackings[user_id].append({
+        "coin_id": coin_id,
         "start_price": start_price,
         "start_time": time.time()
-    }
+    })
 
-    notified_3_5 = False
-    notified_5 = False
-    notified_timeout = False
 
+def stop_all_tracking(user_id):
+    active_trackings[user_id] = []
+
+
+async def tracking_loop():
     while True:
-        await asyncio.sleep(600)  # каждые 10 минут
+        for user_id, coins in list(active_trackings.items()):
+            updated_coins = []
+            for coin in coins:
+                coin_id = coin["coin_id"]
+                start_price = coin["start_price"]
+                start_time = coin["start_time"]
+                current_price = get_current_price(coin_id)
 
-        current_price = get_current_price(coin_id)
-        if not current_price:
-            continue
+                if current_price is None:
+                    updated_coins.append(coin)
+                    continue
 
-        start_data = active_trackings[coin_id]
-        start_price = start_data["start_price"]
-        change_percent = ((current_price - start_price) / start_price) * 100
+                change_pct = ((current_price - start_price) / start_price) * 100
 
-        # Уведомление при +3.5%
-        if change_percent >= 3.5 and not notified_3_5:
-            await bot.send_message(
-                chat_id=OWNER_ID,
-                text=f"📈 Монета *{coin_id}* выросла на +3.5% с начала отслеживания!\n\nТекущая цена: ${current_price:.4f}",
-                parse_mode="Markdown"
-            )
-            notified_3_5 = True
+                if change_pct >= 5:
+                    await bot.send_message(user_id,
+                        f"🚀 Монета *{coin_id}* выросла на +5%!\n"
+                        f"Текущая цена: *{current_price:.4f}* USD",
+                        parse_mode="Markdown")
+                    continue  # не добавляем в updated_coins → удаляем из списка
 
-        # Уведомление при +5%
-        if change_percent >= 5 and not notified_5:
-            await bot.send_message(
-                chat_id=OWNER_ID,
-                text=f"🚀 Монета *{coin_id}* достигла цели +5%!\n\nТекущая цена: ${current_price:.4f}",
-                parse_mode="Markdown"
-            )
-            notified_5 = True
+                elif change_pct >= 3.5:
+                    await bot.send_message(user_id,
+                        f"🔔 Монета *{coin_id}* приближается к цели:\n"
+                        f"Рост уже составил *{change_pct:.2f}%*",
+                        parse_mode="Markdown")
 
-        # Уведомление, если прошло 12 часов и нет +3.5%
-        elapsed = time.time() - start_data["start_time"]
-        if elapsed >= 43200 and not notified_timeout:  # 12 часов
-            await bot.send_message(
-                chat_id=OWNER_ID,
-                text=f"⏱ С момента отслеживания монеты *{coin_id}* прошло 12 часов.\n\nИзменение цены: {change_percent:+.2f}%\nТекущая цена: ${current_price:.4f}",
-                parse_mode="Markdown"
-            )
-            notified_timeout = True
-            return  # Завершаем отслеживание
+                elif time.time() - start_time > TIMEOUT:
+                    await bot.send_message(user_id,
+                        f"⏱ Монета *{coin_id}* отслеживалась 12 часов.\n"
+                        f"Изменение цены: *{change_pct:.2f}%*\n"
+                        f"Текущая цена: *{current_price:.4f}* USD",
+                        parse_mode="Markdown")
+                    continue  # не добавляем → удаляем
 
-        # Завершаем отслеживание, если достигнут +5%
-        if notified_5:
-            return
+                updated_coins.append(coin)
+
+            active_trackings[user_id] = updated_coins
+
+        await asyncio.sleep(CHECK_INTERVAL)
