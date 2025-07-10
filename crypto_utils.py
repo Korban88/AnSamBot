@@ -30,17 +30,17 @@ def get_ma(coin_id):
 def fetch_and_cache_indicators():
     indicators = {}
 
-    batch_size = 30
+    batch_size = 10
     for i in range(0, len(TELEGRAM_WALLET_CRYPTOS), batch_size):
         batch = TELEGRAM_WALLET_CRYPTOS[i:i + batch_size]
         ids = ",".join(batch)
 
         try:
-            url = "https://api.coingecko.com/api/v3/simple/price"
+            url = f"https://api.coingecko.com/api/v3/coins/markets"
             params = {
+                "vs_currency": "usd",
                 "ids": ids,
-                "vs_currencies": "usd",
-                "include_24hr_change": "true"
+                "price_change_percentage": "24h"
             }
             response = httpx.get(url, params=params, timeout=10)
 
@@ -49,25 +49,21 @@ def fetch_and_cache_indicators():
                 continue
 
             data = response.json()
+            for coin in data:
+                indicators[coin["id"]] = {
+                    "price": coin.get("current_price"),
+                    "change_24h": coin.get("price_change_percentage_24h"),
+                    "rsi": 50.0,  # заглушка
+                    "ma": coin.get("current_price"),  # заглушка
+                }
 
-            for coin_id in batch:
-                coin_data = data.get(coin_id)
-                if coin_data:
-                    indicators[coin_id] = {
-                        "price": coin_data.get("usd"),
-                        "change_24h": coin_data.get("usd_24h_change"),
-                        "rsi": 50.0,  # Заглушка
-                        "ma": coin_data.get("usd"),  # Заглушка
-                    }
-                else:
-                    print(f"🔴 {coin_id} — нет данных в ответе CoinGecko")
-
-            time.sleep(1)  # Анти-спам защита
+            time.sleep(1)
 
         except Exception as e:
-            print(f"❌ Ошибка при получении данных: {e}")
+            print(f"Ошибка при получении данных: {e}")
 
     with open(INDICATORS_CACHE_FILE, "w") as f:
         json.dump(indicators, f, indent=2)
 
     print(f"✅ Индикаторы сохранены в {INDICATORS_CACHE_FILE}")
+    print(json.dumps(indicators, indent=2))  # ⬅️ Вывод содержимого в консоль
