@@ -3,13 +3,13 @@
 import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-from config import BOT_TOKEN
+from config import TELEGRAM_BOT_TOKEN
 from handlers import start, button_callback
 from crypto_utils import fetch_and_cache_indicators
 import nest_asyncio
 
 async def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_callback))
