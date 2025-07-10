@@ -1,5 +1,6 @@
 # crypto_list.py
 
+# Валидные ID монет в Telegram Wallet (проверено на CoinGecko)
 TELEGRAM_WALLET_CRYPTOS = [
     "bitcoin",
     "ethereum",
