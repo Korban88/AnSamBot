@@ -48,7 +48,7 @@ def analyze_cryptos():
 
         score = 0
 
-        # RSI: чем ниже, тем лучше
+        # RSI: чем ниже, тем лучше (перекупленность — плохо)
         if rsi < 30:
             score += 30
         elif rsi < 40:
@@ -56,21 +56,21 @@ def analyze_cryptos():
         elif rsi < 50:
             score += 10
 
-        # Скользящая средняя
+        # MA: если цена выше скользящей средней — плюс
         if price > ma:
             score += 25
 
-        # Изменение за 24ч
+        # 24ч изменение: положительное — плюс
         if change_24h > 0:
             score += 15
         elif -1 <= change_24h <= 0:
             score += 5
 
-        # Масштабирование по цене
+        # Умеренное масштабирование по цене (избегаем доминирования дорогих)
         if price > 1:
             score += min(price ** 0.2, 10)
 
-        # Перевод в вероятность
+        # Итоговая вероятность
         probability = round(min(95.0, max(35.0, score)), 1)
 
         if probability >= MIN_GROWTH_PROBABILITY:
@@ -86,23 +86,12 @@ def analyze_cryptos():
         else:
             diagnostics.append(f"⚪ {coin_id} — низкая вероятность: {probability}%")
 
-    if not scored_cryptos:
-        # Для вывода диагностики в Telegram
-        scored_cryptos.append({
-            "id": "diagnostics",
-            "details": diagnostics
-        })
-
-    top_3 = sorted(
-        [c for c in scored_cryptos if c["id"] != "diagnostics"],
-        key=lambda x: x["probability"],
-        reverse=True
-    )[:3]
+    top_3 = sorted(scored_cryptos, key=lambda x: x["probability"], reverse=True)[:3]
+    save_top3_cache(top_3)
 
     if not top_3 and diagnostics:
         print("🔍 Диагностика анализа монет:")
         for msg in diagnostics:
             print(msg)
 
-    save_top3_cache(top_3)
     return top_3
