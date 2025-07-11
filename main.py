@@ -1,32 +1,88 @@
-# main.py (обновлённый с вызовом fetch_and_cache_indicators)
+# main.py
 
-import asyncio
-from telegram import Update
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-from config import TELEGRAM_BOT_TOKEN
-from handlers import start, button_callback
-from crypto_utils import fetch_and_cache_indicators
-import nest_asyncio
+from config import TELEGRAM_BOT_TOKEN as BOT_TOKEN, OWNER_ID
+from analysis import analyze_cryptos, load_top3_cache
+from tracking import start_tracking_coin, stop_all_tracking
 
-async def main():
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+logging.basicConfig(level=logging.INFO)
+user_signal_index = {}
 
+
+def escape_markdown(text):
+    escape_chars = r"\_*[]()~`>#+-=|{}.!()"
+    return "".join(f"\\{c}" if c in escape_chars else c for c in str(text))
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("📈 Получить сигнал", callback_data="get_signal")],
+        [InlineKeyboardButton("⛔ Остановить все отслеживания", callback_data="stop_tracking")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
+
+
+async def get_signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in user_signal_index:
+        user_signal_index[user_id] = 0
+
+    top_3 = load_top3_cache()
+    if not top_3:
+        top_3 = analyze_cryptos()
+
+    if not top_3:
+        await update.callback_query.message.reply_text("⚠️ Нет подходящих монет для сигнала.")
+        return
+
+    index = user_signal_index[user_id] % len(top_3)
+    coin = top_3[index]
+    user_signal_index[user_id] += 1
+
+    price = coin["price"]
+    target_price = round(price * 1.05, 4)
+    stop_loss = round(price * 0.97, 4)
+    message = (
+        f"*🟢 Сигнал на рост: {escape_markdown(coin['id'].capitalize())}*\n"
+        f"Цена: {price}\n"
+        f"24ч: {coin['change_24h']}\\%\n"
+        f"RSI: {coin['rsi']} \\| MA: {coin['ma']}\n"
+        f"🎯 Цель: {target_price}\n"
+        f"🛑 Стоп-лосс: {stop_loss}\n"
+        f"📈 Вероятность роста: *{coin['probability']}\\%*"
+    )
+
+    keyboard = [[InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{coin['id']}")]]
+    await update.callback_query.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="MarkdownV2")
+
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data.startswith("track_"):
+        coin_id = query.data.split("_", 1)[1]
+        await start_tracking_coin(coin_id, query.message.chat_id, context.bot)
+
+    elif query.data == "get_signal":
+        await get_signal(update, context)
+
+    elif query.data == "stop_tracking":
+        await stop_all_tracking(update.effective_chat.id, context.bot)
+        await query.message.reply_text("⛔ Все отслеживания остановлены.")
+
+
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
-    await app.run_polling()
+    logging.info("🚀 Бот запущен")
+    app.run_polling()
+
 
 if __name__ == "__main__":
-    fetch_and_cache_indicators()  # ключевой вызов перед стартом бота
-
-    # Проверим, что файл indicators_cache.json действительно заполнен
-    try:
-        import json
-        with open("indicators_cache.json", "r") as f:
-            cache = json.load(f)
-            print(f"\n📦 Кеш: {len(cache)} монет загружено\n")
-    except Exception as e:
-        print(f"❌ Ошибка при чтении кеша: {e}")
-
-    nest_asyncio.apply()
-    asyncio.get_event_loop().run_until_complete(main())
+    main()
