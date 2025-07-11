@@ -48,7 +48,7 @@ def fetch_and_cache_indicators():
                     "rsi": 50.0,
                     "ma": coin.get("current_price"),
                 }
-            time.sleep(2.5)
+            time.sleep(5)
         except Exception as e:
             print(f"Ошибка при получении данных: {e}")
     with open(INDICATORS_CACHE_FILE, "w") as f:
