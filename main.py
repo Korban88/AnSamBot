@@ -1,88 +1,40 @@
-# main.py
-
+import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-from config import TELEGRAM_BOT_TOKEN as BOT_TOKEN, OWNER_ID
-from analysis import analyze_cryptos, load_top3_cache
-from tracking import start_tracking_coin, stop_all_tracking
+from config import TELEGRAM_BOT_TOKEN, OWNER_ID
+from crypto_utils import fetch_and_cache_indicators, get_current_price, get_24h_change, get_rsi, get_ma
+from crypto_list import TELEGRAM_WALLET_CRYPTOS
 
 logging.basicConfig(level=logging.INFO)
-user_signal_index = {}
-
-
-def escape_markdown(text):
-    escape_chars = r"\_*[]()~`>#+-=|{}.!()"
-    return "".join(f"\\{c}" if c in escape_chars else c for c in str(text))
-
+logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📈 Получить сигнал", callback_data="get_signal")],
-        [InlineKeyboardButton("⛔ Остановить все отслеживания", callback_data="stop_tracking")]
+        [InlineKeyboardButton("⛔ Остановить все отслеживания", callback_data="stop_all")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
-
-
-async def get_signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in user_signal_index:
-        user_signal_index[user_id] = 0
-
-    top_3 = load_top3_cache()
-    if not top_3:
-        top_3 = analyze_cryptos()
-
-    if not top_3:
-        await update.callback_query.message.reply_text("⚠️ Нет подходящих монет для сигнала.")
-        return
-
-    index = user_signal_index[user_id] % len(top_3)
-    coin = top_3[index]
-    user_signal_index[user_id] += 1
-
-    price = coin["price"]
-    target_price = round(price * 1.05, 4)
-    stop_loss = round(price * 0.97, 4)
-    message = (
-        f"*🟢 Сигнал на рост: {escape_markdown(coin['id'].capitalize())}*\n"
-        f"Цена: {price}\n"
-        f"24ч: {coin['change_24h']}\\%\n"
-        f"RSI: {coin['rsi']} \\| MA: {coin['ma']}\n"
-        f"🎯 Цель: {target_price}\n"
-        f"🛑 Стоп-лосс: {stop_loss}\n"
-        f"📈 Вероятность роста: *{coin['probability']}\\%*"
+    await update.message.reply_text(
+        "Добро пожаловать в новую жизнь, Корбан!",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
-
-    keyboard = [[InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{coin['id']}")]]
-    await update.callback_query.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="MarkdownV2")
-
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    if query.data == "get_signal":
+        await query.message.reply_text("⚠️ Нет подходящих монет для сигнала.")
+    if query.data == "stop_all":
+        await query.message.reply_text("⛔ Отслеживания остановлены.")
 
-    if query.data.startswith("track_"):
-        coin_id = query.data.split("_", 1)[1]
-        await start_tracking_coin(coin_id, query.message.chat_id, context.bot)
-
-    elif query.data == "get_signal":
-        await get_signal(update, context)
-
-    elif query.data == "stop_tracking":
-        await stop_all_tracking(update.effective_chat.id, context.bot)
-        await query.message.reply_text("⛔ Все отслеживания остановлены.")
-
-
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+async def main():
+    print("📥 Обновляем indicators_cache.json...")
+    fetch_and_cache_indicators()
+    print("✅ Готово!")
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
-
-    logging.info("🚀 Бот запущен")
-    app.run_polling()
-
+    await app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
