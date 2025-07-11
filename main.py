@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import (Application, CallbackQueryHandler, CommandHandler, ContextTypes)
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import TELEGRAM_BOT_TOKEN, OWNER_ID
 from analysis import analyze_cryptos
@@ -11,8 +11,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    keyboard = [[InlineKeyboardButton("Получить сигнал", callback_data="get_signal")],
-                [InlineKeyboardButton("Остановить все отслеживания", callback_data="stop_tracking")]]
+    keyboard = [
+        [InlineKeyboardButton("Получить сигнал", callback_data="get_signal")],
+        [InlineKeyboardButton("Остановить все отслеживания", callback_data="stop_tracking")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     if update.message:
         await update.message.reply_text(
@@ -43,7 +45,11 @@ async def get_signal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         f"Цель: +{coin['target_percent']}%\n"
         f"Стоп-лосс: {coin['stop_loss_percent']}%"
     )
-    await update.callback_query.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="MarkdownV2")
+    await update.callback_query.message.reply_text(
+        message,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="MarkdownV2"
+    )
 
 async def track_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -64,4 +70,6 @@ async def main():
     await app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import nest_asyncio
+    nest_asyncio.apply()
+    asyncio.get_event_loop().run_until_complete(main())
