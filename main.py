@@ -1,61 +1,86 @@
 import asyncio
 import logging
-import json
-import os
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-from crypto_utils import fetch_and_cache_indicators, load_indicators
-from analysis import analyze_cryptos
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 from config import TELEGRAM_BOT_TOKEN, OWNER_ID
+from analysis import analyze_cryptos, load_top3_cache, save_top3_cache
+from crypto_utils import fetch_and_cache_indicators
+from tracking import start_tracking_coin, stop_all_trackings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Функция генерации сигнала по top-3
+async def generate_signal(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None):
+    top3 = load_top3_cache()
+    if not top3:
+        cryptos = await analyze_cryptos()
+        top3 = cryptos[:3]
+        save_top3_cache(top3)
+        logger.info("Top-3 монеты обновлены и сохранены")
+
+    if update:
+        if top3:
+            coin = top3.pop(0)
+            save_top3_cache(top3)
+            keyboard = [[InlineKeyboardButton(f"Следить за {coin['id'].capitalize()}", callback_data=f"track_{coin['id']}")]]
+            message = (
+                f"*🟢 Сигнал на рост: {coin['id'].capitalize()}*
+"
+                f"Цена: {coin['price']}$\nВероятность роста: {coin['probability']}%\n"
+                f"Цель: {coin['target_price']}$ | Стоп-лосс: {coin['stop_loss']}$"
+            )
+            await update.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="MarkdownV2")
+        else:
+            await update.message.reply_text("⚠️ Нет подходящих монет для сигнала.")
+
+# Хендлеры команд и кнопок
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("У вас нет доступа к боту.")
         return
-    await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!")
-    await send_signal(update, context)
-
-async def send_signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    top3 = analyze_cryptos()
-    if not top3:
-        await update.message.reply_text("⚠️ Нет подходящих монет для сигнала.")
-        return
-    coin = top3[0]
-    if "id" in coin:
-        keyboard = [[InlineKeyboardButton("Следить за монетой", callback_data=coin['id'])]]
-        await update.message.reply_text(
-            f"Монета: {coin['id']}\nЦена: {coin['price']}",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    else:
-        await update.message.reply_text("⚠️ Нет подходящих монет для сигнала.")
+    keyboard = [[InlineKeyboardButton("Получить сигнал", callback_data="get_signal")],
+                [InlineKeyboardButton("Остановить все отслеживания", callback_data="stop_all")]]
+    await update.message.reply_text(
+        "Добро пожаловать в новую жизнь, Корбан!", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.message.reply_text(f"Начинаю отслеживать: {query.data}")
-
-async def cron_updater():
-    while True:
-        try:
-            fetch_and_cache_indicators()
-        except Exception as e:
-            logger.error(f"Ошибка в cron_updater: {e}")
-        await asyncio.sleep(1800)  # 30 минут
+    if query.data == "get_signal":
+        await generate_signal(update, context)
+    elif query.data.startswith("track_"):
+        coin_id = query.data.split("_")[1]
+        await start_tracking_coin(coin_id, context.bot)
+        await query.message.reply_text(f"🔔 Отслеживание {coin_id.capitalize()} запущено.")
+    elif query.data == "stop_all":
+        stop_all_trackings()
+        await query.message.reply_text("⛔ Все отслеживания остановлены.")
 
 async def main():
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    fetch_and_cache_indicators()
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_handler))
 
-    asyncio.create_task(cron_updater())
+    loop = asyncio.get_event_loop()
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
 
-    logger.info("🚀 Бот запущен")
-    await app.run_polling()
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except RuntimeError as e:
+        if "This event loop is already running" in str(e):
+            logger.warning("Запущен в окружении с уже активным event loop. Пропускаем asyncio.run().")
+        else:
+            raise
