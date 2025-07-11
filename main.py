@@ -31,7 +31,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.reply_text("Все отслеживания остановлены.")
 
 async def get_signal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    top_coins = analyze_cryptos()
+    top_coins = analyze_cryptos(disable_filters=True)
     if not top_coins:
         await update.callback_query.message.reply_text("⚠️ Нет подходящих монет для сигнала.")
         return
@@ -70,6 +70,4 @@ async def main():
     await app.run_polling()
 
 if __name__ == "__main__":
-    import nest_asyncio
-    nest_asyncio.apply()
-    asyncio.get_event_loop().run_until_complete(main())
+    asyncio.run(main())
