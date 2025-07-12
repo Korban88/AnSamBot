@@ -4,7 +4,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import TELEGRAM_BOT_TOKEN
-from crypto_utils import fetch_prices, get_24h_change, get_rsi, get_ma
+from crypto_utils import fetch_prices
 import top3_cache
 
 logging.basicConfig(level=logging.INFO)
@@ -40,10 +40,7 @@ async def get_prices(update: Update) -> None:
 
     message = "*Актуальные цены монет:*\n"
     for coin_id, price in latest_prices.items():
-        change = get_24h_change(coin_id)
-        rsi = get_rsi(coin_id)
-        ma = get_ma(coin_id)
-        message += (f"{coin_id.capitalize()}: ${price} | Изм: {change}% | RSI: {rsi} | MA: {ma}\n")
+        message += f"{coin_id.capitalize()}: ${price}\n"
     await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
 
 async def get_top3(update: Update) -> None:
@@ -64,7 +61,10 @@ async def main():
     app.add_handler(CallbackQueryHandler(button_handler, pattern="^(get_prices|get_top3)$"))
 
     logger.info("🚀 Бот запущен")
-    await app.run_polling()
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await app.updater.idle()
 
 if __name__ == "__main__":
     asyncio.run(main())
