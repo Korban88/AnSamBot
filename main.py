@@ -40,8 +40,7 @@ async def get_prices(update: Update) -> None:
 
     message = "*Актуальные цены монет:*\n"
     for coin_id, price in latest_prices.items():
-        price_str = str(price).replace(".", "\\.")  # Экранируем точку для MarkdownV2
-        message += f"{coin_id.capitalize()}: \\${price_str}\n"
+        message += f"{coin_id.replace('-', '\\-').capitalize()}: ${price}\n"
     await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
 
 async def get_top3(update: Update) -> None:
@@ -52,17 +51,19 @@ async def get_top3(update: Update) -> None:
 
     message = "*Топ-3 монеты:*\n"
     for coin in top3:
-        message += f"{coin}\n"
+        message += f"{coin.replace('-', '\\-')}\n"
     await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
 
-async def main():
+def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler, pattern="^(get_prices|get_top3)$"))
 
     logger.info("🚀 Бот запущен")
-    await app.run_polling()
+    app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import uvloop
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    main()
