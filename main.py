@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 latest_prices = {}
 
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [
         [InlineKeyboardButton("Получить цены", callback_data="get_prices")],
@@ -24,7 +23,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup
         )
 
-
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
@@ -32,7 +30,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await get_prices(update)
     elif query.data == "get_top3":
         await get_top3(update)
-
 
 async def get_prices(update: Update) -> None:
     global latest_prices
@@ -46,7 +43,6 @@ async def get_prices(update: Update) -> None:
         message += f"{coin_id.capitalize()}: ${price}\n"
     await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
 
-
 async def get_top3(update: Update) -> None:
     top3 = top3_cache.get_top3()
     if not top3:
@@ -58,7 +54,6 @@ async def get_top3(update: Update) -> None:
         message += f"{coin}\n"
     await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
 
-
 async def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -68,6 +63,7 @@ async def main():
     logger.info("🚀 Бот запущен")
     await app.run_polling()
 
-
 if __name__ == "__main__":
+    import uvloop
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     asyncio.run(main())
