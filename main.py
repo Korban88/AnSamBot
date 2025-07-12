@@ -67,7 +67,11 @@ async def main():
     app.add_handler(CallbackQueryHandler(track_button_handler, pattern="^track_"))
 
     logger.info("🚀 Бот запущен")
-    await app.run_polling()
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await app.updater.idle()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
