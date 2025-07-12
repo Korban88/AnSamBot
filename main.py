@@ -1,9 +1,9 @@
 import asyncio
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-from config import TELEGRAM_BOT_TOKEN, OWNER_ID
+from config import TELEGRAM_BOT_TOKEN
 from analysis import analyze_cryptos
 from tracking import start_tracking_coin, stop_all_trackings
 
@@ -16,10 +16,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [InlineKeyboardButton("Остановить все отслеживания", callback_data="stop_tracking")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    if update.message:
-        await update.message.reply_text(
-            "Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup
-        )
+    await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -67,16 +64,7 @@ async def main():
     app.add_handler(CallbackQueryHandler(track_button_handler, pattern="^track_"))
 
     logger.info("🚀 Бот запущен")
-
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await app.updater.idle()
+    await app.run_polling()
 
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
+    asyncio.run(main())
