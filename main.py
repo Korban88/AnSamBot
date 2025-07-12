@@ -1,6 +1,7 @@
+import asyncio
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import TELEGRAM_BOT_TOKEN
 from crypto_utils import fetch_prices
@@ -39,7 +40,8 @@ async def get_prices(update: Update) -> None:
 
     message = "*Актуальные цены монет:*\n"
     for coin_id, price in latest_prices.items():
-        message += f"{coin_id.capitalize()}: ${price}\n"
+        price_str = str(price).replace(".", "\\.")  # Экранируем точку для MarkdownV2
+        message += f"{coin_id.capitalize()}: \\${price_str}\n"
     await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
 
 async def get_top3(update: Update) -> None:
@@ -53,11 +55,14 @@ async def get_top3(update: Update) -> None:
         message += f"{coin}\n"
     await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
 
-if __name__ == "__main__":
+async def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler, pattern="^(get_prices|get_top3)$"))
 
     logger.info("🚀 Бот запущен")
-    app.run_polling()
+    await app.run_polling()
+
+if __name__ == "__main__":
+    asyncio.run(main())
