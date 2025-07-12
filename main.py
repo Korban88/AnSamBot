@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 from config import TELEGRAM_BOT_TOKEN
 from crypto_utils import fetch_prices
@@ -64,6 +64,4 @@ async def main():
     await app.run_polling()
 
 if __name__ == "__main__":
-    import uvloop
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     asyncio.run(main())
