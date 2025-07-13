@@ -1,59 +1,82 @@
 import json
 import os
-import time
-from crypto_list import CRYPTO_LIST
+import logging
+from datetime import datetime, timedelta
 from crypto_utils import get_change_and_price_batch, get_rsi_mock
+from crypto_list import CRYPTO_LIST
 
 CACHE_FILE = "top_signals_cache.json"
-CACHE_TTL = 30 * 60  # 30 минут в секундах
+CACHE_DURATION_MINUTES = 30
 
-def calculate_probability(change_24h: float, rsi: float) -> int:
-    probability = 50
-    if change_24h > 0:
-        probability += min(change_24h * 2, 10)
-    else:
-        probability += max(change_24h * 2, -10)
-    if 30 < rsi < 70:
-        probability += 15
-    elif rsi <= 30:
-        probability -= 10
-    elif rsi >= 70:
-        probability -= 10
-    return max(1, min(int(probability), 99))
-
-async def get_top_signals():
+def load_cache():
     if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as file:
-            data = json.load(file)
-            if time.time() - data["timestamp"] < CACHE_TTL:
-                return data["signals"]
+        with open(CACHE_FILE, "r", encoding="utf-8") as file:
+            try:
+                return json.load(file)
+            except Exception as e:
+                logging.error(f"Ошибка загрузки кеша: {e}")
+    return {}
 
-    coin_ids = [coin["id"] for coin in CRYPTO_LIST]
-    change_and_price_dict = await get_change_and_price_batch(coin_ids)
+def save_cache(data):
+    with open(CACHE_FILE, "w", encoding="utf-8") as file:
+        json.dump(data, file)
 
-    all_signals = []
-    for coin in CRYPTO_LIST:
-        stats = change_and_price_dict.get(coin["id"], {"change_24h": 0.0, "price": 100.0})
-        change_24h = stats["change_24h"]
-        entry_price = stats["price"]
-        rsi = await get_rsi_mock(coin["id"])
-        probability = calculate_probability(change_24h, rsi)
+async def analyze_cryptos():
+    cache = load_cache()
+    now = datetime.utcnow()
 
-        print(f"Монета: {coin['name']}, change_24h: {change_24h}, entry_price: {entry_price}, probability: {probability}")
+    if "timestamp" in cache:
+        cache_time = datetime.fromisoformat(cache["timestamp"])
+        if now - cache_time < timedelta(minutes=CACHE_DURATION_MINUTES):
+            logging.info("Загружаем top_signals из кеша")
+            logging.info(f"Кешированные монеты: {[coin['coin'] for coin in cache.get('top_signals', [])]}")
+            return cache.get("top_signals", [])
 
-        if probability >= 65 and change_24h >= -3 and entry_price > 0:
-            all_signals.append({
-                "id": coin["id"],
-                "name": coin["name"],
-                "probability": probability,
-                "entry_price": round(entry_price, 2),
-                "target_price": round(entry_price * 1.05, 2),
-                "stop_loss": round(entry_price * 0.95, 2),
-            })
+    try:
+        price_data = await get_change_and_price_batch(CRYPTO_LIST)
+    except Exception as e:
+        logging.error(f"Ошибка анализа: {e}")
+        return []
 
-    top_signals = sorted(all_signals, key=lambda x: x["probability"], reverse=True)[:3]
+    signals = []
+    for coin_id in CRYPTO_LIST:
+        rsi = await get_rsi_mock(coin_id)
+        change_24h = price_data[coin_id]["change_24h"]
+        price = price_data[coin_id]["price"]
 
-    with open(CACHE_FILE, "w") as file:
-        json.dump({"timestamp": time.time(), "signals": top_signals}, file)
+        probability = 50
+        if rsi < 30 and change_24h > -1:
+            probability = 75
+        elif rsi < 40:
+            probability = 65
+        elif rsi > 70:
+            probability = 40
+
+        if change_24h < -3:
+            probability -= 15
+
+        signals.append({
+            "coin": coin_id,
+            "price": round(price, 2),
+            "change_24h": round(change_24h, 2),
+            "probability": probability
+        })
+
+    filtered_signals = [s for s in signals if s["probability"] >= 55]
+    logging.info(f"Отобрано монет с probability >= 55: {len(filtered_signals)}")
+    for s in filtered_signals:
+        logging.info(f"{s['coin']} — Вероятность: {s['probability']}% Цена: {s['price']}")
+
+    if len(filtered_signals) < 3:
+        logging.warning("Внимание: в top_signals меньше 3 монет!")
+
+    sorted_signals = sorted(filtered_signals, key=lambda x: x["probability"], reverse=True)
+    top_signals = sorted_signals[:3]
+
+    cache = {
+        "timestamp": now.isoformat(),
+        "top_signals": top_signals
+    }
+    save_cache(cache)
 
     return top_signals
