@@ -9,22 +9,17 @@ CACHE_TTL = 30 * 60  # 30 минут в секундах
 
 def calculate_probability(change_24h: float, rsi: float) -> int:
     probability = 50
-
     if change_24h > 0:
         probability += min(change_24h * 2, 10)
     else:
         probability += max(change_24h * 2, -10)
-
     if 30 < rsi < 70:
         probability += 15
     elif rsi <= 30:
         probability -= 10
     elif rsi >= 70:
         probability -= 10
-
-    probability = max(1, min(int(probability), 99))
-
-    return probability
+    return max(1, min(int(probability), 99))
 
 async def get_top_signals():
     if os.path.exists(CACHE_FILE):
@@ -43,6 +38,8 @@ async def get_top_signals():
         entry_price = stats["price"]
         rsi = await get_rsi_mock(coin["id"])
         probability = calculate_probability(change_24h, rsi)
+
+        print(f"Монета: {coin['name']}, change_24h: {change_24h}, entry_price: {entry_price}, probability: {probability}")
 
         if probability >= 65 and change_24h >= -3 and entry_price > 0:
             all_signals.append({
