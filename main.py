@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
@@ -39,7 +38,6 @@ async def get_prices(update: Update) -> None:
         await update.callback_query.message.reply_text("⚠️ Не удалось получить данные о ценах.")
         return
 
-    # Сохраняем топ-3 монеты по цене
     sorted_coins = sorted(latest_prices.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0, reverse=True)
     top3 = [coin for coin, price in sorted_coins[:3]]
     top3_cache.save_top3(top3)
@@ -61,14 +59,14 @@ async def get_top3(update: Update) -> None:
         message += f"{coin.capitalize()}\n"
     await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
 
-async def main():
+def main():
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^(get_prices|get_top3)$"))
 
     logger.info("🚀 Бот запущен")
-    await application.run_polling()
+    application.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
