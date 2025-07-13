@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from tracking import start_tracking_coin, stop_all_trackings
@@ -7,11 +7,8 @@ from analysis import get_top_signals
 OWNER_ID = 347552741
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("Получить сигнал", callback_data="get_signal")],
-        [InlineKeyboardButton("Остановить все отслеживания", callback_data="stop_tracking")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    keyboard = [["Получить сигнал"], ["Остановить все отслеживания"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     await update.message.reply_text(
         "Добро пожаловать в новую жизнь, Корбан!\nВыберите действие:",
