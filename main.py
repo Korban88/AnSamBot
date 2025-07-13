@@ -1,3 +1,6 @@
+import nest_asyncio
+nest_asyncio.apply()
+
 import asyncio
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -9,6 +12,8 @@ import top3_cache
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+latest_prices = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [
@@ -30,18 +35,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await get_top3(update)
 
 async def get_prices(update: Update) -> None:
-    prices = await fetch_prices()
-    if not prices:
+    global latest_prices
+    latest_prices = await fetch_prices()
+    if not latest_prices:
         await update.callback_query.message.reply_text("⚠️ Не удалось получить данные о ценах.")
         return
 
     message = "*Актуальные цены монет:*\n"
-    for coin_id, price in prices.items():
-        # MarkdownV2 требует экранирования точек и прочего
-        coin_name = coin_id.replace("_", "\\_").capitalize()
-        message += f"{coin_name}: ${price}\n"
-
-    await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
+    for coin_id, price in latest_prices.items():
+        message += f"{coin_id.capitalize()}: {price}$\n"
+    await update.callback_query.message.reply_text(message)
 
 async def get_top3(update: Update) -> None:
     top3 = top3_cache.get_top3()
@@ -51,9 +54,8 @@ async def get_top3(update: Update) -> None:
 
     message = "*Топ-3 монеты:*\n"
     for coin in top3:
-        coin_name = coin.replace("_", "\\_")
-        message += f"{coin_name}\n"
-    await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
+        message += f"{coin}\n"
+    await update.callback_query.message.reply_text(message)
 
 async def main():
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
@@ -65,4 +67,4 @@ async def main():
     await application.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.get_event_loop().run_until_complete(main())
