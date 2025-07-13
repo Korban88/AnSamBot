@@ -28,7 +28,7 @@ async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     message = (
         f"Монета: {coin['name']}\n"
         f"Вероятность роста: {coin['probability']}%\n"
-        f"Цена входа: {coin['entry_price']}\n"
+        f"Цена входа: {coin['price']}\n"
         f"Цель: {coin['target_price']}\n"
         f"Стоп-лосс: {coin['stop_loss']}"
     )
