@@ -1,75 +1,28 @@
-import asyncio
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
-from telegram.helpers import escape_markdown
+from telegram import Update
+from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters)
 
-from config import TELEGRAM_BOT_TOKEN
-from crypto_utils import fetch_prices
-import top3_cache
+# Импорты твоих модулей:
+from config import TELEGRAM_TOKEN
+from handlers import start_handler, get_signal_handler, follow_coin_handler, stop_tracking_handler
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-latest_prices = {}
+def setup_application() -> Application:
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    keyboard = [
-        [InlineKeyboardButton("Получить цены", callback_data="get_prices")],
-        [InlineKeyboardButton("Топ-3 монеты", callback_data="get_top3")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    if update.message:
-        await update.message.reply_text(
-            escape_markdown("Добро пожаловать в новую жизнь, Корбан!"), reply_markup=reply_markup, parse_mode="MarkdownV2"
-        )
+    application.add_handler(CommandHandler("start", start_handler))
+    application.add_handler(MessageHandler(filters.Regex("Получить сигнал"), get_signal_handler))
+    application.add_handler(CallbackQueryHandler(follow_coin_handler, pattern="^follow_"))
+    application.add_handler(MessageHandler(filters.Regex("Остановить все отслеживания"), stop_tracking_handler))
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-    try:
-        if query.data == "get_prices":
-            await get_prices(update)
-        elif query.data == "get_top3":
-            await get_top3(update)
-    except Exception as e:
-        logger.error(f"Ошибка при обработке кнопки: {e}")
-        await query.message.reply_text("⚠️ Произошла ошибка. Попробуйте снова.")
-
-async def get_prices(update: Update) -> None:
-    global latest_prices
-    latest_prices = await fetch_prices()
-    if not latest_prices:
-        await update.callback_query.message.reply_text(escape_markdown("⚠️ Не удалось получить данные о ценах."), parse_mode="MarkdownV2")
-        return
-
-    message = "*Актуальные цены монет:*\n"
-    for coin_id, price in latest_prices.items():
-        line = f"{coin_id.capitalize()}: {price if price != 'нет данных' else 'нет данных'}$\n"
-        message += escape_markdown(line)
-
-    await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
-
-async def get_top3(update: Update) -> None:
-    top3 = top3_cache.get_top3()
-    if not top3:
-        await update.callback_query.message.reply_text(escape_markdown("⚠️ Топ-3 монеты пока не сохранены."), parse_mode="MarkdownV2")
-        return
-
-    message = "*Топ-3 монеты:*\n"
-    for coin in top3:
-        message += escape_markdown(f"{coin}\n")
-
-    await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
-
-async def main():
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler))
-
-    logger.info("🚀 Бот запущен")
-    await application.run_polling()
+    return application
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    app = setup_application()
+    logger.info("\ud83d\ude80 Бот запущен")
+    app.run_polling()
