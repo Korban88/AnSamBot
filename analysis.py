@@ -1,82 +1,79 @@
 import json
 import os
-import logging
-from datetime import datetime, timedelta
+import time
 from crypto_utils import get_change_and_price_batch, get_rsi_mock
 from crypto_list import CRYPTO_LIST
 
 CACHE_FILE = "top_signals_cache.json"
-CACHE_DURATION_MINUTES = 30
+CACHE_EXPIRATION = 30 * 60  # 30 минут
 
-def load_cache():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r", encoding="utf-8") as file:
-            try:
-                return json.load(file)
-            except Exception as e:
-                logging.error(f"Ошибка загрузки кеша: {e}")
-    return {}
+def load_cached_top_signals():
+    if not os.path.exists(CACHE_FILE):
+        return None
+    with open(CACHE_FILE, "r") as f:
+        cache_data = json.load(f)
+    if time.time() - cache_data["timestamp"] > CACHE_EXPIRATION:
+        return None
+    return cache_data["top_signals"]
 
-def save_cache(data):
-    with open(CACHE_FILE, "w", encoding="utf-8") as file:
-        json.dump(data, file)
+def save_cached_top_signals(top_signals):
+    cache_data = {
+        "timestamp": time.time(),
+        "top_signals": top_signals
+    }
+    with open(CACHE_FILE, "w") as f:
+        json.dump(cache_data, f)
 
 async def analyze_cryptos():
-    cache = load_cache()
-    now = datetime.utcnow()
+    cached = load_cached_top_signals()
+    if cached:
+        return cached
 
-    if "timestamp" in cache:
-        cache_time = datetime.fromisoformat(cache["timestamp"])
-        if now - cache_time < timedelta(minutes=CACHE_DURATION_MINUTES):
-            logging.info("Загружаем top_signals из кеша")
-            logging.info(f"Кешированные монеты: {[coin['coin'] for coin in cache.get('top_signals', [])]}")
-            return cache.get("top_signals", [])
-
-    try:
-        price_data = await get_change_and_price_batch(CRYPTO_LIST)
-    except Exception as e:
-        logging.error(f"Ошибка анализа: {e}")
-        return []
+    crypto_ids = [crypto['id'] for crypto in CRYPTO_LIST]
+    change_and_price_data = await get_change_and_price_batch(crypto_ids)
 
     signals = []
-    for coin_id in CRYPTO_LIST:
+    for crypto in CRYPTO_LIST:
+        coin_id = crypto['id']
+        name = crypto['name']
+        data = change_and_price_data.get(coin_id, {})
+        price = data.get("price", 0.0)
+        change_24h = data.get("change_24h", 0.0)
+
+        if price <= 0:
+            continue
+
         rsi = await get_rsi_mock(coin_id)
-        change_24h = price_data[coin_id]["change_24h"]
-        price = price_data[coin_id]["price"]
 
-        probability = 50
-        if rsi < 30 and change_24h > -1:
-            probability = 75
-        elif rsi < 40:
-            probability = 65
-        elif rsi > 70:
-            probability = 40
+        if change_24h < -3.0:
+            continue
 
-        if change_24h < -3:
-            probability -= 15
+        score = 0
+
+        if 35 <= rsi <= 65:
+            score += 1
+        if change_24h >= 0:
+            score += 1
+
+        probability = min(50 + score * 10, 90)
 
         signals.append({
-            "coin": coin_id,
-            "price": round(price, 2),
+            "name": name,
+            "id": coin_id,
+            "price": round(price, 4),
             "change_24h": round(change_24h, 2),
+            "rsi": rsi,
             "probability": probability
         })
 
-    filtered_signals = [s for s in signals if s["probability"] >= 55]
-    logging.info(f"Отобрано монет с probability >= 55: {len(filtered_signals)}")
-    for s in filtered_signals:
-        logging.info(f"{s['coin']} — Вероятность: {s['probability']}% Цена: {s['price']}")
+    signals.sort(key=lambda x: x['probability'], reverse=True)
 
-    if len(filtered_signals) < 3:
-        logging.warning("Внимание: в top_signals меньше 3 монет!")
+    top_signals = signals[:3]
 
-    sorted_signals = sorted(filtered_signals, key=lambda x: x["probability"], reverse=True)
-    top_signals = sorted_signals[:3]
-
-    cache = {
-        "timestamp": now.isoformat(),
-        "top_signals": top_signals
-    }
-    save_cache(cache)
+    save_cached_top_signals(top_signals)
 
     return top_signals
+
+# Добавлено для совместимости с handlers.py
+async def get_top_signals():
+    return await analyze_cryptos()
