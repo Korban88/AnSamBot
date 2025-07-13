@@ -2,7 +2,7 @@ import json
 import os
 import time
 from crypto_list import CRYPTO_LIST
-from crypto_utils import get_change_24h
+from crypto_utils import get_change_24h, get_rsi_mock
 
 CACHE_FILE = "top_signals_cache.json"
 CACHE_TTL = 12 * 60 * 60  # 12 часов в секундах
@@ -11,9 +11,9 @@ def calculate_probability(change_24h: float, rsi: float) -> int:
     probability = 50
 
     if change_24h > 0:
-        probability += min(change_24h * 2, 10)  # Максимум +10%
+        probability += min(change_24h * 2, 10)
     else:
-        probability += max(change_24h * 2, -10)  # Максимум -10%
+        probability += max(change_24h * 2, -10)
 
     if 30 < rsi < 70:
         probability += 15
@@ -36,8 +36,8 @@ async def get_top_signals():
     new_signals = []
     for coin in CRYPTO_LIST[:3]:
         change_24h = await get_change_24h(coin["id"])
-        fake_rsi = 55  # RSI подключим следующим шагом
-        probability = calculate_probability(change_24h, fake_rsi)
+        rsi = await get_rsi_mock(coin["id"])
+        probability = calculate_probability(change_24h, rsi)
 
         new_signals.append({
             "id": coin["id"],
