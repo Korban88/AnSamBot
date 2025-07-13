@@ -1,49 +1,48 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-
-from tracking import start_tracking_coin, stop_all_trackings
+import logging
 from analysis import get_top_signals
 
-OWNER_ID = 347552741
+logger = logging.getLogger("handlers")
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["Получить сигнал"], ["Остановить все отслеживания"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    keyboard = [
+        [InlineKeyboardButton("Получить сигнал", callback_data="get_signal")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "Добро пожаловать в новую жизнь, Корбан!\nВыберите действие:",
+        "Добро пожаловать в новую жизнь, Корбан!\nНажмите кнопку ниже, чтобы получить сигнал:",
         reply_markup=reply_markup
     )
 
-async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    top_signals = await get_top_signals()
-    if not top_signals:
-        await update.message.reply_text("Нет подходящих монет сейчас.")
-        return
-
-    coin = top_signals[0]
-    keyboard = [[InlineKeyboardButton("Следить за монетой", callback_data=f"follow_{coin['id']}")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    message = (
-        f"Монета: {coin['name']}\n"
-        f"Вероятность роста: {coin['probability']}%\n"
-        f"Цена входа: {coin['price']}\n"
-        f"Цель: {coin['target_price']}\n"
-        f"Стоп-лосс: {coin['stop_loss']}"
-    )
-    await update.message.reply_text(message, reply_markup=reply_markup)
-
-async def follow_coin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    coin_id = query.data.replace("follow_", "")
-    await start_tracking_coin(coin_id, query.from_user.id)
+    if query.data == "get_signal":
+        await get_signal_handler(update, context, from_button=True)
 
-    await query.edit_message_text(f"Отслеживание монеты {coin_id} запущено.")
+async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, from_button=False):
+    if from_button:
+        message = update.callback_query.message
+    else:
+        message = update.message
 
-async def stop_tracking_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    await stop_all_trackings(user_id)
-    await update.message.reply_text("Все отслеживания остановлены.")
+    top_signals = await get_top_signals()
+
+    if not top_signals:
+        await message.reply_text("Нет подходящих монет по текущим условиям.")
+        return
+
+    signal = top_signals[0]
+
+    text = (
+        f"💡 Сигнал по монете: {signal['name']}\n\n"
+        f"Цена входа: {signal['entry_price']}\n"
+        f"Цель +5%: {signal['target_price']}\n"
+        f"Стоп-лосс: {signal['stop_loss']}\n"
+        f"Вероятность роста: {signal['probability']}%\n"
+    )
+
+    await message.reply_text(text)
