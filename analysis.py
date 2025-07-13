@@ -1,6 +1,19 @@
+import json
+import os
+import time
+
+CACHE_FILE = "top_signals_cache.json"
+CACHE_TTL = 12 * 60 * 60  # 12 часов в секундах
+
 async def get_top_signals():
-    # Пример заглушки для топ-3 монет с вероятностью роста
-    return [
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as file:
+            data = json.load(file)
+            if time.time() - data["timestamp"] < CACHE_TTL:
+                return data["signals"]
+
+    # Заглушка для новых сигналов
+    new_signals = [
         {
             "id": "bitcoin",
             "name": "Bitcoin",
@@ -26,3 +39,8 @@ async def get_top_signals():
             "stop_loss": 1950,
         },
     ]
+
+    with open(CACHE_FILE, "w") as file:
+        json.dump({"timestamp": time.time(), "signals": new_signals}, file)
+
+    return new_signals
