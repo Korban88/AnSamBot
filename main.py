@@ -1,6 +1,3 @@
-import nest_asyncio
-nest_asyncio.apply()
-
 import asyncio
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -37,14 +34,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def get_prices(update: Update) -> None:
     global latest_prices
     latest_prices = await fetch_prices()
+
     if not latest_prices:
         await update.callback_query.message.reply_text("⚠️ Не удалось получить данные о ценах.")
         return
 
+    # Сохраняем топ-3 монеты по цене
+    sorted_coins = sorted(latest_prices.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0, reverse=True)
+    top3 = [coin for coin, price in sorted_coins[:3]]
+    top3_cache.save_top3(top3)
+
     message = "*Актуальные цены монет:*\n"
     for coin_id, price in latest_prices.items():
-        message += f"{coin_id.capitalize()}: {price}$\n"
-    await update.callback_query.message.reply_text(message)
+        price_str = f"${price}" if isinstance(price, (int, float)) else "нет данных$"
+        message += f"{coin_id.capitalize()}: {price_str}\n"
+    await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
 
 async def get_top3(update: Update) -> None:
     top3 = top3_cache.get_top3()
@@ -54,8 +58,8 @@ async def get_top3(update: Update) -> None:
 
     message = "*Топ-3 монеты:*\n"
     for coin in top3:
-        message += f"{coin}\n"
-    await update.callback_query.message.reply_text(message)
+        message += f"{coin.capitalize()}\n"
+    await update.callback_query.message.reply_text(message, parse_mode="MarkdownV2")
 
 async def main():
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
@@ -67,4 +71,4 @@ async def main():
     await application.run_polling()
 
 if __name__ == "__main__":
-    asyncio.get_event_loop().run_until_complete(main())
+    asyncio.run(main())
