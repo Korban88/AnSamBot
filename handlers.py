@@ -1,48 +1,41 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-import logging
 from analysis import get_top_signals
-
-logger = logging.getLogger("handlers")
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("Получить сигнал", callback_data="get_signal")]
+        [InlineKeyboardButton("Получить сигнал", callback_data="get_signal")],
+        [InlineKeyboardButton("Остановить все отслеживания", callback_data="stop_tracking")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
+
+async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    top_signals = await get_top_signals()
+    if not top_signals:
+        await update.callback_query.message.reply_text("Нет подходящих монет на текущий момент.")
+        return
+
+    coin = top_signals[0]
+    keyboard = [
+        [InlineKeyboardButton("Следить за монетой", callback_data=f"follow_{coin['id']}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "Добро пожаловать в новую жизнь, Корбан!\nНажмите кнопку ниже, чтобы получить сигнал:",
-        reply_markup=reply_markup
+    message_text = (
+        f"Монета: {coin['name']}\n"
+        f"Цена входа: {coin['entry_price']}\n"
+        f"Цель: {coin['target_price']} (+5%)\n"
+        f"Стоп-лосс: {coin['stop_loss']}\n"
+        f"Текущая цена: {coin['price']}\n"
+        f"Изменение за 24ч: {coin['change_24h']}%\n"
+        f"Вероятность роста: {coin['growth_probability']}%"
     )
 
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    await update.callback_query.message.reply_text(message_text, reply_markup=reply_markup)
 
-    if query.data == "get_signal":
-        await get_signal_handler(update, context, from_button=True)
+async def follow_coin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.message.reply_text("Функция отслеживания монеты временно недоступна.")
 
-async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, from_button=False):
-    if from_button:
-        message = update.callback_query.message
-    else:
-        message = update.message
-
-    top_signals = await get_top_signals()
-
-    if not top_signals:
-        await message.reply_text("Нет подходящих монет по текущим условиям.")
-        return
-
-    signal = top_signals[0]
-
-    text = (
-        f"💡 Сигнал по монете: {signal['name']}\n\n"
-        f"Цена входа: {signal['entry_price']}\n"
-        f"Цель +5%: {signal['target_price']}\n"
-        f"Стоп-лосс: {signal['stop_loss']}\n"
-        f"Вероятность роста: {signal['probability']}%\n"
-    )
-
-    await message.reply_text(text)
+async def stop_tracking_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.message.reply_text("Функция остановки отслеживания временно недоступна.")
