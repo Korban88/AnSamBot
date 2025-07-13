@@ -5,7 +5,7 @@ from crypto_list import CRYPTO_LIST
 from crypto_utils import get_change_and_price_batch, get_rsi_mock
 
 CACHE_FILE = "top_signals_cache.json"
-CACHE_TTL = 12 * 60 * 60  # 12 часов в секундах
+CACHE_TTL = 30 * 60  # 30 минут в секундах
 
 def calculate_probability(change_24h: float, rsi: float) -> int:
     probability = 50
