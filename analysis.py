@@ -33,22 +33,25 @@ async def get_top_signals():
             if time.time() - data["timestamp"] < CACHE_TTL:
                 return data["signals"]
 
-    new_signals = []
-    for coin in CRYPTO_LIST[:3]:
+    all_signals = []
+    for coin in CRYPTO_LIST:
         change_24h = await get_change_24h(coin["id"])
         rsi = await get_rsi_mock(coin["id"])
         probability = calculate_probability(change_24h, rsi)
 
-        new_signals.append({
-            "id": coin["id"],
-            "name": coin["name"],
-            "probability": probability,
-            "entry_price": 100,
-            "target_price": 105,
-            "stop_loss": 95,
-        })
+        if probability >= 65 and change_24h >= -3:
+            all_signals.append({
+                "id": coin["id"],
+                "name": coin["name"],
+                "probability": probability,
+                "entry_price": 100,
+                "target_price": 105,
+                "stop_loss": 95,
+            })
+
+    top_signals = sorted(all_signals, key=lambda x: x["probability"], reverse=True)[:3]
 
     with open(CACHE_FILE, "w") as file:
-        json.dump({"timestamp": time.time(), "signals": new_signals}, file)
+        json.dump({"timestamp": time.time(), "signals": top_signals}, file)
 
-    return new_signals
+    return top_signals
