@@ -28,7 +28,13 @@ async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard = [[InlineKeyboardButton("Следить за монетой", callback_data=f"follow_{coin['id']}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    message = f"Монета: {coin['name']}\nВероятность роста: {coin['probability']}%\nЦена входа: {coin['entry_price']}\nЦель: {coin['target_price']}\nСтоп-лосс: {coin['stop_loss']}"
+    message = (
+        f"Монета: {coin['name']}\n"
+        f"Вероятность роста: {coin['probability']}%\n"
+        f"Цена входа: {coin['entry_price']}\n"
+        f"Цель: {coin['target_price']}\n"
+        f"Стоп-лосс: {coin['stop_loss']}"
+    )
     await update.message.reply_text(message, reply_markup=reply_markup)
 
 async def follow_coin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
