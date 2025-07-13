@@ -2,7 +2,7 @@ import json
 import os
 import time
 from crypto_list import CRYPTO_LIST
-from crypto_utils import get_change_24h, get_rsi_mock
+from crypto_utils import get_change_24h_batch, get_rsi_mock
 
 CACHE_FILE = "top_signals_cache.json"
 CACHE_TTL = 12 * 60 * 60  # 12 часов в секундах
@@ -33,22 +33,28 @@ async def get_top_signals():
             if time.time() - data["timestamp"] < CACHE_TTL:
                 return data["signals"]
 
-    new_signals = []
-    for coin in CRYPTO_LIST[:3]:
-        change_24h = await get_change_24h(coin["id"])
+    coin_ids = [coin["id"] for coin in CRYPTO_LIST]
+    change_24h_dict = await get_change_24h_batch(coin_ids)
+
+    all_signals = []
+    for coin in CRYPTO_LIST:
+        change_24h = change_24h_dict.get(coin["id"], 0.0)
         rsi = await get_rsi_mock(coin["id"])
         probability = calculate_probability(change_24h, rsi)
 
-        new_signals.append({
-            "id": coin["id"],
-            "name": coin["name"],
-            "probability": probability,
-            "entry_price": 100,
-            "target_price": 105,
-            "stop_loss": 95,
-        })
+        if probability >= 65 and change_24h >= -3:
+            all_signals.append({
+                "id": coin["id"],
+                "name": coin["name"],
+                "probability": probability,
+                "entry_price": 100,
+                "target_price": 105,
+                "stop_loss": 95,
+            })
+
+    top_signals = sorted(all_signals, key=lambda x: x["probability"], reverse=True)[:3]
 
     with open(CACHE_FILE, "w") as file:
-        json.dump({"timestamp": time.time(), "signals": new_signals}, file)
+        json.dump({"timestamp": time.time(), "signals": top_signals}, file)
 
-    return new_signals
+    return top_signals
