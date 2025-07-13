@@ -1,79 +1,77 @@
 import json
 import os
-import time
+import logging
+from datetime import datetime, timedelta
 from crypto_utils import get_change_and_price_batch, get_rsi_mock
 from crypto_list import CRYPTO_LIST
 
+logger = logging.getLogger(__name__)
+
 CACHE_FILE = "top_signals_cache.json"
-CACHE_EXPIRATION = 30 * 60  # 30 минут
+CACHE_EXPIRY_MINUTES = 30
 
 def load_cached_top_signals():
-    if not os.path.exists(CACHE_FILE):
-        return None
-    with open(CACHE_FILE, "r") as f:
-        cache_data = json.load(f)
-    if time.time() - cache_data["timestamp"] > CACHE_EXPIRATION:
-        return None
-    return cache_data["top_signals"]
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            cache_data = json.load(f)
+            timestamp = datetime.fromisoformat(cache_data["timestamp"])
+            if datetime.now() - timestamp < timedelta(minutes=CACHE_EXPIRY_MINUTES):
+                logger.info("Загружаем топ-сигналы из кеша")
+                return cache_data["top_signals"]
+    return None
 
 def save_cached_top_signals(top_signals):
-    cache_data = {
-        "timestamp": time.time(),
-        "top_signals": top_signals
-    }
-    with open(CACHE_FILE, "w") as f:
-        json.dump(cache_data, f)
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump({
+            "timestamp": datetime.now().isoformat(),
+            "top_signals": top_signals
+        }, f, ensure_ascii=False, indent=4)
 
-async def analyze_cryptos():
-    cached = load_cached_top_signals()
-    if cached:
-        return cached
+async def analyze_cryptos(coin_ids: list) -> list:
+    cached_signals = load_cached_top_signals()
+    if cached_signals:
+        return cached_signals
 
-    crypto_ids = [crypto['id'] for crypto in CRYPTO_LIST]
-    change_and_price_data = await get_change_and_price_batch(crypto_ids)
+    logger.info(f"Анализируем {len(coin_ids)} монет...")
 
-    signals = []
-    for crypto in CRYPTO_LIST:
-        coin_id = crypto['id']
-        name = crypto['name']
-        data = change_and_price_data.get(coin_id, {})
-        price = data.get("price", 0.0)
-        change_24h = data.get("change_24h", 0.0)
+    try:
+        change_and_price = await get_change_and_price_batch(coin_ids)
+    except Exception as e:
+        logger.error(f"Ошибка при получении данных о ценах и изменениях: {e}")
+        return []
 
-        if price <= 0:
-            continue
+    top_signals = []
+
+    for coin_id in coin_ids:
+        price_info = change_and_price.get(coin_id, {})
+        change_24h = price_info.get("change_24h", 0.0)
+        price = price_info.get("price", 0.0)
 
         rsi = await get_rsi_mock(coin_id)
 
-        if change_24h < -3.0:
-            continue
+        probability = 70 + (rsi - 50) * 0.5 - abs(change_24h) * 0.2
+        probability = max(0, min(100, probability))
 
-        score = 0
+        logger.info(f"{coin_id} → price: {price}, change_24h: {change_24h}, rsi: {rsi}, probability: {probability}")
 
-        if 35 <= rsi <= 65:
-            score += 1
-        if change_24h >= 0:
-            score += 1
+        if probability >= 65 and change_24h > -3:
+            top_signals.append({
+                "coin_id": coin_id,
+                "price": price,
+                "change_24h": change_24h,
+                "rsi": rsi,
+                "probability": round(probability, 2)
+            })
+        else:
+            logger.info(f"{coin_id} отсеян: probability={probability}, change_24h={change_24h}")
 
-        probability = min(50 + score * 10, 90)
-
-        signals.append({
-            "name": name,
-            "id": coin_id,
-            "price": round(price, 4),
-            "change_24h": round(change_24h, 2),
-            "rsi": rsi,
-            "probability": probability
-        })
-
-    signals.sort(key=lambda x: x['probability'], reverse=True)
-
-    top_signals = signals[:3]
+    top_signals = sorted(top_signals, key=lambda x: x["probability"], reverse=True)[:3]
 
     save_cached_top_signals(top_signals)
 
+    logger.info(f"Топ сигналов после фильтрации: {top_signals}")
+
     return top_signals
 
-# Добавлено для совместимости с handlers.py
 async def get_top_signals():
-    return await analyze_cryptos()
+    return await analyze_cryptos(CRYPTO_LIST)
