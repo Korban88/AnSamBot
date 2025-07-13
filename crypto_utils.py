@@ -2,19 +2,19 @@ import httpx
 
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3/simple/price"
 
-COINS = ["bitcoin", "ethereum", "toncoin"]
-
-async def fetch_prices():
+async def get_change_24h(coin_id: str) -> float:
     params = {
-        "ids": ",".join(COINS),
-        "vs_currencies": "usd"
+        "ids": coin_id,
+        "vs_currencies": "usd",
+        "include_24hr_change": "true"
     }
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(COINGECKO_API_URL, params=params, timeout=10)
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(COINGECKO_API_URL, params=params)
             response.raise_for_status()
             data = response.json()
-            return {coin: data.get(coin, {}).get("usd", "нет данных") for coin in COINS}
+            change = data.get(coin_id, {}).get("usd_24h_change", 0.0)
+            return float(change)
     except Exception as e:
-        print(f"Ошибка при получении данных: {e}")
-        return {}
+        print(f"Ошибка при получении 24h change для {coin_id}: {e}")
+        return 0.0
