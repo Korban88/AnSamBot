@@ -52,3 +52,5 @@ CRYPTO_LIST = [
     {"id": "wrapped-bitcoin", "name": "Wrapped Bitcoin"},
     {"id": "ripple", "name": "XRP"}
 ]
+
+CRYPTO_IDS = [coin["id"] for coin in CRYPTO_LIST]
