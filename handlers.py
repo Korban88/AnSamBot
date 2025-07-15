@@ -2,6 +2,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from analysis import get_top_signals
 
+user_signal_index = {}
+
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Получить сигнал", callback_data="get_signal")],
@@ -11,12 +13,21 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
 
 async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in user_signal_index:
+        user_signal_index[user_id] = 0
+
     top_signals = await get_top_signals()
     if not top_signals:
-        await update.callback_query.message.reply_text("Нет подходящих монет на текущий момент.")
+        if update.message:
+            await update.message.reply_text("Нет подходящих монет на текущий момент.")
+        elif update.callback_query:
+            await update.callback_query.message.reply_text("Нет подходящих монет на текущий момент.")
         return
 
-    coin = top_signals[0]
+    coin = top_signals[user_signal_index[user_id] % len(top_signals)]
+    user_signal_index[user_id] += 1
+
     keyboard = [
         [InlineKeyboardButton("Следить за монетой", callback_data=f"follow_{coin['id']}")]
     ]
@@ -32,10 +43,13 @@ async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"Вероятность роста: {coin['growth_probability']}%"
     )
 
-    await update.callback_query.message.reply_text(message_text, reply_markup=reply_markup)
+    if update.message:
+        await update.message.reply_text(message_text, reply_markup=reply_markup)
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(message_text, reply_markup=reply_markup)
 
 async def follow_coin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.message.reply_text("Функция отслеживания монеты временно недоступна.")
 
 async def stop_tracking_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.message.reply_text("Функция остановки отслеживания временно недоступна.")
+    await update.message.reply_text("Функция остановки отслеживания временно недоступна.")
