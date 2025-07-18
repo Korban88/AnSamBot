@@ -1,66 +1,60 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from utils.signals import get_top_signals
-from tracking import start_tracking, stop_all_trackings
-import os
+from crypto_utils import get_top_signals
+from tracking import stop_all_trackings
+from config import OWNER_ID
 
-# Старт
-async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+user_signal_index = {}
+
+def get_main_keyboard():
     keyboard = [
         [InlineKeyboardButton("Получить сигнал", callback_data="get_signal")],
         [InlineKeyboardButton("Остановить все отслеживания", callback_data="stop_tracking")],
-        [InlineKeyboardButton("Сбросить кеш", callback_data="reset_cache")],
+        [InlineKeyboardButton("Сбросить кеш", callback_data="reset_cache")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
+    return InlineKeyboardMarkup(keyboard)
 
-# Получить сигнал
-signal_index = {}
+async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = get_main_keyboard()
+    await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=keyboard)
 
 async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    if chat_id not in user_signal_index:
+        user_signal_index[chat_id] = 0
+
     top_signals = await get_top_signals()
+    signal_index = user_signal_index[chat_id] % len(top_signals)
+    signal = top_signals[signal_index]
+    user_signal_index[chat_id] += 1
 
-    index = signal_index.get(user_id, 0)
-    signal = top_signals[index % len(top_signals)]
-    signal_index[user_id] = index + 1
-
-    text = (
-        f"*Монета:* {signal['name']}\n"
-        f"*Цена входа:* {signal['entry_price']}\n"
-        f"*Цель:* {signal['target_price']} (+5%)\n"
-        f"*Стоп-лосс:* {signal['stop_loss']}\n"
-        f"*Вероятность роста:* {signal['probability']}%"
+    message = (
+        f"Монета: {signal['name']}\n"
+        f"Цена входа: {signal['entry_price']}\n"
+        f"Цель: {signal['target_price']} (+5%)\n"
+        f"Стоп-лосс: {signal['stop_loss']}\n"
+        f"Текущая цена: {signal['entry_price']}\n"
+        f"Изменение за 24ч: {round((signal['target_price'] - signal['entry_price']) / signal['entry_price'] * 100, 2)}%\n"
+        f"Вероятность роста: {signal['probability']}%\n"
     )
-    keyboard = [
+
+    keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("Следить за монетой", callback_data=f"follow_{signal['id']}")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    ])
 
-    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+    await update.message.reply_text(message, reply_markup=keyboard)
 
-# Следить за монетой
 async def follow_coin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    await update.callback_query.answer("Отслеживание запущено!")
 
-    coin_id = query.data.split("_", 1)[1]
-    user_id = query.from_user.id
-    await start_tracking(user_id, coin_id, context)
-
-    await query.edit_message_reply_markup(reply_markup=None)
-    await query.message.reply_text(f"⏱ Монета *{coin_id}* теперь под наблюдением!", parse_mode="Markdown")
-
-# Остановить отслеживание
 async def stop_tracking_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    stop_all_trackings(user_id)
-    await update.message.reply_text("❌ Все отслеживания остановлены.")
+    stop_all_trackings()
+    await update.message.reply_text("Все отслеживания остановлены.")
 
-# Сброс кеша
 async def reset_cache_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if os.path.exists("top_signals_cache.json"):
-        os.remove("top_signals_cache.json")
-        await update.message.reply_text("🧹 Кеш очищен.")
+    if update.effective_user.id == OWNER_ID:
+        from crypto_utils import reset_top_signals_cache
+        reset_top_signals_cache()
+        await update.message.reply_text("Кеш сигналов сброшен.")
     else:
-        await update.message.reply_text("Кеш уже пуст.")
+        await update.message.reply_text("У вас нет прав для этой команды.")
