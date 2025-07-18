@@ -30,6 +30,11 @@ def save_top_signals_cache(top_signals):
             "top_signals": top_signals
         }, f)
 
+def clear_top_signals_cache():
+    if os.path.exists(TOP_SIGNALS_CACHE_FILE):
+        os.remove(TOP_SIGNALS_CACHE_FILE)
+        logger.info("Кеш топ сигналов сброшен.")
+
 async def get_top_signals():
     cached_signals = load_top_signals_cache()
     if cached_signals:
@@ -49,20 +54,16 @@ async def get_top_signals():
         coin_id = coin['id']
         name = coin['name']
         info = price_and_change.get(coin_id, {})
-
         if "price" not in info or "change_24h" not in info:
             logger.warning(f"Нет данных для {coin_id}, пропускаем.")
             continue
-
         price = info.get("price", 0.0)
         change_24h = info.get("change_24h", 0.0)
-
         if change_24h > -3:
             growth_probability = min(95, max(65, 70 + change_24h))
             entry_price = price
             target_price = round(price * 1.05, 4)
             stop_loss = round(price * 0.97, 4)
-
             results.append({
                 "id": coin_id,
                 "name": name,
@@ -73,7 +74,6 @@ async def get_top_signals():
                 "change_24h": round(change_24h, 4),
                 "growth_probability": round(growth_probability, 2)
             })
-
     results.sort(key=lambda x: x["growth_probability"], reverse=True)
     top_signals = results[:3]
     save_top_signals_cache(top_signals)
