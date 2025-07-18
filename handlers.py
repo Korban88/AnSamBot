@@ -1,7 +1,6 @@
-import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from analysis import get_top_signals, TOP_SIGNALS_CACHE_FILE
+from analysis import get_top_signals, clear_top_signals_cache
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -10,7 +9,10 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Сбросить кеш", callback_data="reset_cache")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
+    if update.message:
+        await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
+    elif update.callback_query:
+        await update.callback_query.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
 
 async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     top_signals = await get_top_signals()
@@ -18,7 +20,9 @@ async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.callback_query.message.reply_text("Нет подходящих монет на текущий момент.")
         return
 
-    coin = top_signals[0]
+    coin = top_signals[context.user_data.get("signal_index", 0) % len(top_signals)]
+    context.user_data["signal_index"] = context.user_data.get("signal_index", 0) + 1
+
     keyboard = [
         [InlineKeyboardButton("Следить за монетой", callback_data=f"follow_{coin['id']}")]
     ]
@@ -43,8 +47,5 @@ async def stop_tracking_handler(update: Update, context: ContextTypes.DEFAULT_TY
     await update.callback_query.message.reply_text("Функция остановки отслеживания временно недоступна.")
 
 async def reset_cache_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if os.path.exists(TOP_SIGNALS_CACHE_FILE):
-        os.remove(TOP_SIGNALS_CACHE_FILE)
-        await update.message.reply_text("Кеш топ-3 монет успешно сброшен.")
-    else:
-        await update.message.reply_text("Файл кеша не найден.")
+    clear_top_signals_cache()
+    await update.callback_query.message.reply_text("Кеш топ сигналов успешно сброшен.")
