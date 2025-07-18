@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from crypto_utils import get_top_signals
+from analysis import get_top_signals
 from tracking import stop_all_trackings
 from config import OWNER_ID
 
