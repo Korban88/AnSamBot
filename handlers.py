@@ -1,4 +1,4 @@
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes
 from analysis import get_top_signals
 from tracking import stop_all_trackings
@@ -38,10 +38,14 @@ async def get_signal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"Вероятность роста: {probability}%\n"
     )
 
-    await update.message.reply_text(message)
+    inline_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Следить за монетой", callback_data=f"follow_{signal['id']}")]
+    ])
+
+    await update.message.reply_text(message, reply_markup=inline_keyboard)
 
 async def follow_coin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Отслеживание запущено!")
+    await update.callback_query.answer("Отслеживание запущено!")
 
 async def stop_tracking_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stop_all_trackings()
@@ -54,3 +58,14 @@ async def reset_cache_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Кеш сигналов сброшен.")
     else:
         await update.message.reply_text("У вас нет прав для этой команды.")
+
+async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip().lower()
+    if text == "получить сигнал":
+        await get_signal_handler(update, context)
+    elif text == "остановить все отслеживания":
+        await stop_tracking_handler(update, context)
+    elif text == "сбросить кеш":
+        await reset_cache_handler(update, context)
+    else:
+        await update.message.reply_text("Команда не распознана.")
