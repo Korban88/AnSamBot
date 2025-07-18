@@ -1,4 +1,4 @@
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from config import TELEGRAM_BOT_TOKEN
 from handlers import (
     start_handler,
@@ -6,22 +6,15 @@ from handlers import (
     follow_coin_handler,
     stop_tracking_handler,
     reset_cache_handler,
+    text_message_handler
 )
 
 def setup_application():
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # Регистрация команд
     application.add_handler(CommandHandler("start", start_handler))
-    application.add_handler(CommandHandler("get_signal", get_signal_handler))
-    application.add_handler(CommandHandler("stop_tracking", stop_tracking_handler))
-    application.add_handler(CommandHandler("reset_cache", reset_cache_handler))
-
-    # Регистрация callback кнопок
     application.add_handler(CallbackQueryHandler(follow_coin_handler, pattern="^follow_"))
-    application.add_handler(CallbackQueryHandler(stop_tracking_handler, pattern="^stop_tracking$"))
-    application.add_handler(CallbackQueryHandler(reset_cache_handler, pattern="^reset_cache$"))
-    application.add_handler(CallbackQueryHandler(get_signal_handler, pattern="^get_signal$"))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
 
     return application
 
