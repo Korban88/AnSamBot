@@ -30,11 +30,10 @@ async def get_top_signals():
         entry_price = price_data["usd"]
         change_24h = price_data.get("usd_24h_change", 0)
 
-        # Пример фильтра и оценки
         if change_24h < -3:
             continue
 
-        score = max(0, min(1, 0.7 + (0.03 - abs(change_24h) / 100)))  # Условная логика
+        score = max(0, min(1, 0.7 + (0.03 - abs(change_24h) / 100)))
 
         top_signals.append({
             "id": coin_id,
@@ -42,15 +41,24 @@ async def get_top_signals():
             "entry_price": round(entry_price, 4),
             "target_price": round(entry_price * 1.05, 4),
             "stop_loss": round(entry_price * 0.97, 4),
-            "probability": round(score * 100, 2)  # Гарантированное добавление probability
+            "probability": round(score * 100, 2)
         })
 
-    # Сортировка по probability
     top_signals.sort(key=lambda x: x["probability"], reverse=True)
     top_signals = top_signals[:3]
 
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"top_signals": top_signals}, f, ensure_ascii=False, indent=2)
+    if top_signals:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"top_signals": top_signals}, f, ensure_ascii=False, indent=2)
+        print(f"Топ монет сформирован: {[s['name'] for s in top_signals]}")
+    else:
+        if os.path.exists(CACHE_FILE):
+            os.remove(CACHE_FILE)
+        print("Нет подходящих монет, топ не сформирован.")
 
-    print(f"Топ монет сформирован: {[s['name'] for s in top_signals]}")
     return top_signals
+
+def reset_top_signals_cache():
+    if os.path.exists(CACHE_FILE):
+        os.remove(CACHE_FILE)
+        print("Кеш сигналов очищен.")
