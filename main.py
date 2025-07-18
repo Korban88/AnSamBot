@@ -1,5 +1,5 @@
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
-from config import BOT_TOKEN
+from config import TELEGRAM_BOT_TOKEN
 from handlers import (
     start_handler,
     get_signal_handler,
@@ -9,7 +9,7 @@ from handlers import (
 )
 
 def setup_application():
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     # Регистрация команд
     application.add_handler(CommandHandler("start", start_handler))
