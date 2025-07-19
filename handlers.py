@@ -4,13 +4,13 @@ from analysis import get_top_signal
 from tracking import start_tracking, stop_all_trackings
 from config import OWNER_ID
 
-def start_command_handler(update: Update, context: CallbackContext):
+async def start_command_handler(update: Update, context: CallbackContext):
     keyboard = [
         [InlineKeyboardButton("📈 Получить сигнал", callback_data="get_signal")],
         [InlineKeyboardButton("🛑 Остановить все отслеживания", callback_data="stop_tracking")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text(
+    await update.message.reply_text(
         "Добро пожаловать в новую жизнь, Корбан!",
         reply_markup=reply_markup
     )
