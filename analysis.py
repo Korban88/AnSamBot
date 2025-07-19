@@ -1,10 +1,15 @@
 import json
 import os
+import aiohttp
 import asyncio
+import math
 from crypto_list import CRYPTO_LIST
 from crypto_utils import get_current_prices
 
 CACHE_FILE = "top_signals_cache.json"
+
+def is_valid_price(price):
+    return price is not None and not isinstance(price, str) and price > 0 and not math.isnan(price)
 
 async def get_top_signals():
     if os.path.exists(CACHE_FILE):
@@ -23,16 +28,23 @@ async def get_top_signals():
         coin_name = coin["name"]
         price_data = prices.get(coin_id)
 
-        if not price_data or not price_data.get("usd"):
+        if not price_data:
             continue
 
-        entry_price = price_data["usd"]
-        change_24h = price_data.get("usd_24h_change", 0)
+        entry_price = price_data.get("usd")
+        change_24h = price_data.get("usd_24h_change")
 
+        # Исключаем монеты без нормальной цены
+        if not is_valid_price(entry_price) or not isinstance(change_24h, (float, int)):
+            continue
+
+        # Исключаем монеты с падением > 3%
         if change_24h < -3:
             continue
 
+        # Пример оценки вероятности (упрощённо)
         score = max(0, min(1, 0.7 + (0.03 - abs(change_24h) / 100)))
+        probability = round(score * 100, 2)
 
         top_signals.append({
             "id": coin_id,
@@ -40,14 +52,20 @@ async def get_top_signals():
             "entry_price": round(entry_price, 4),
             "target_price": round(entry_price * 1.05, 4),
             "stop_loss": round(entry_price * 0.97, 4),
-            "probability": round(score * 100, 2)
+            "probability": probability
         })
 
+    # Сортировка и выбор топ-3
     top_signals.sort(key=lambda x: x["probability"], reverse=True)
     top_signals = top_signals[:3]
 
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"top_signals": top_signals}, f, ensure_ascii=False, indent=2)
+    # Кэш только если есть сигналы
+    if top_signals:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"top_signals": top_signals}, f, ensure_ascii=False, indent=2)
 
-    print(f"Топ монет сформирован: {[s['name'] for s in top_signals]}")
+        print(f"Топ монет сформирован: {[s['name'] for s in top_signals]}")
+    else:
+        print("Нет подходящих монет для сигнала.")
+
     return top_signals
