@@ -1,21 +1,19 @@
 import asyncio
-import nest_asyncio
 from telegram.ext import ApplicationBuilder
-from config import TELEGRAM_BOT_TOKEN, OWNER_ID
-from handlers import start_handler, button_handler
-from scheduler import schedule_daily_signal_check
-
-nest_asyncio.apply()
+from handlers import (
+    start_command_handler,
+    button_callback_handler,
+    text_message_handler
+)
+from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from config import BOT_TOKEN
 
 async def main():
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Добавление обработчиков
-    app.add_handler(start_handler)
-    app.add_handler(button_handler)
-
-    # Планировщик сигнала в 8:00
-    schedule_daily_signal_check(app, OWNER_ID)
+    app.add_handler(CommandHandler("start", start_command_handler))
+    app.add_handler(CallbackQueryHandler(button_callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
 
     print("Бот запущен.")
     await app.run_polling()
