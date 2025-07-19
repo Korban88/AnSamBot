@@ -1,64 +1,108 @@
 import json
 import os
-from crypto_list import CRYPTO_LIST
-from crypto_utils import get_current_prices
+from datetime import datetime
+from crypto_utils import get_current_prices, load_indicators_cache, get_cached_indicator, set_cached_indicator, save_indicators_cache
 
-CACHE_FILE = "top_signals_cache.json"
+# Стейблкоины, которые исключаются из анализа
+STABLECOINS = {
+    "tether", "usd-coin", "binance-usd", "true-usd", "usdd", "usdp", "paxos-standard", "gemini-dollar", "husd"
+}
+
+TOP_SIGNALS_CACHE_FILE = "top_signals_cache.json"
+
+# Расчёт score на основе множества факторов
+def calculate_score(rsi, ma_diff, change_24h, volume):
+    score = 0
+    if 45 <= rsi <= 65:
+        score += 2
+    if ma_diff > 0:
+        score += 2
+    if change_24h > 0:
+        score += 2
+    if volume > 1000000:
+        score += 1
+    return score
 
 
-async def get_top_signals():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            cached = json.load(f)
-            if cached.get("top_signals"):
-                return cached["top_signals"]
+def estimate_growth_probability(score):
+    # Конвертация score в вероятность роста
+    return min(round(50 + score * 6, 2), 100.0)
 
-    print("Анализируем монеты...")
 
-    prices = await get_current_prices([coin["id"] for coin in CRYPTO_LIST])
-    top_signal = None
-    top_score = -1
+async def analyze_cryptos(crypto_list):
+    # Исключаем стейблкоины
+    filtered = [c for c in crypto_list if c.lower() not in STABLECOINS]
 
-    for coin in CRYPTO_LIST:
-        coin_id = coin["id"]
-        coin_name = coin["name"]
-        price_data = prices.get(coin_id)
+    # Загружаем кэш индикаторов
+    cache = load_indicators_cache()
 
-        if not price_data or not price_data.get("usd"):
+    # Получаем текущие цены и 24h изменения
+    prices_data = await get_current_prices(filtered)
+
+    results = []
+    for coin in filtered:
+        data = prices_data.get(coin)
+        if not data or "usd" not in data:
             continue
 
-        current_price = price_data["usd"]
-        change_24h = price_data.get("usd_24h_change", 0)
+        current_price = data["usd"]
+        change_24h = data.get("usd_24h_change", 0)
 
-        if change_24h < -3:
+        # Получаем индикаторы из кэша
+        rsi = get_cached_indicator(cache, coin, "rsi")
+        ma = get_cached_indicator(cache, coin, "ma")
+        volume = get_cached_indicator(cache, coin, "volume")
+
+        # Если чего-то нет — пропускаем
+        if None in (rsi, ma, volume):
             continue
 
-        # Строгая формула оценки
-        score = 0
-        if 0 < change_24h < 5:
-            score += 0.3
-        if change_24h > 0:
-            score += 0.2
-        if current_price > 0:
-            score += 0.2
-        score += max(0, min(0.3, (5 - abs(change_24h)) / 10))
+        ma_diff = current_price - ma
+        score = calculate_score(rsi, ma_diff, change_24h, volume)
+        probability = estimate_growth_probability(score)
 
-        if score > top_score:
-            top_score = score
-            top_signal = {
-                "id": coin_id,
-                "name": coin_name,
-                "entry_price": round(current_price, 4),
-                "target_price": round(current_price * 1.05, 4),
-                "stop_loss": round(current_price * 0.97, 4),
-                "change_24h": round(change_24h, 2),
-                "probability": round(score * 100, 2)
-            }
+        results.append({
+            "coin": coin,
+            "price": round(current_price, 6),
+            "rsi": rsi,
+            "ma": ma,
+            "volume": volume,
+            "change_24h": round(change_24h, 2),
+            "score": score,
+            "probability": probability
+        })
 
-    result = [top_signal] if top_signal else []
+    # Сохраняем кэш обратно
+    save_indicators_cache(cache)
 
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"top_signals": result}, f, ensure_ascii=False, indent=2)
+    # Отбираем top-3 монеты по score
+    top_signals = sorted(results, key=lambda x: x["score"], reverse=True)[:3]
 
-    print(f"Сигнал: {top_signal['name'] if top_signal else 'нет подходящих монет'}")
-    return result
+    # Сохраняем кеш топа
+    with open(TOP_SIGNALS_CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(top_signals, f, ensure_ascii=False, indent=2)
+
+    return top_signals
+
+
+def load_top_signals_cache():
+    if os.path.exists(TOP_SIGNALS_CACHE_FILE):
+        with open(TOP_SIGNALS_CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+
+def get_next_signal_from_cache():
+    top_signals = load_top_signals_cache()
+
+    if not top_signals:
+        return None
+
+    # Ротация: первый сигнал перемещается в конец
+    signal = top_signals.pop(0)
+    top_signals.append(signal)
+
+    with open(TOP_SIGNALS_CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(top_signals, f, ensure_ascii=False, indent=2)
+
+    return signal
