@@ -1,4 +1,3 @@
-import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
@@ -25,7 +24,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=markup
     )
 
-async def main():
+def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -33,11 +32,7 @@ async def main():
     app.add_handler(CallbackQueryHandler(button_callback_handler))
 
     print("Бот запущен.")
-    await app.run_polling()
+    app.run_polling()  # Запускаем напрямую, без asyncio.run()
 
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
-    except RuntimeError:
-        asyncio.run(main())
+    main()
