@@ -1,7 +1,6 @@
 from crypto_utils import get_market_data
 from crypto_list import MONITORED_SYMBOLS
 import json
-import random
 
 used_symbols_file = "used_symbols.json"
 
@@ -17,18 +16,21 @@ def save_used_symbols(symbols):
         json.dump(symbols[-6:], f)
 
 async def get_top_signal():
-    data = await get_market_data()
     signals = []
+    used = load_used_symbols()
 
-    for item in data:
-        symbol = item["symbol"].upper()
-        if symbol not in MONITORED_SYMBOLS:
+    for symbol in MONITORED_SYMBOLS:
+        if symbol in used:
             continue
 
-        rsi = item.get("rsi")
-        ma = item.get("ma")
-        change = item.get("price_change_percentage_24h")
-        price = item.get("current_price")
+        data = await get_market_data(symbol)
+        if not data:
+            continue
+
+        rsi = data.get("rsi")
+        ma = data.get("ma")
+        change = data.get("price_change_percentage_24h")
+        price = data.get("current_price")
 
         if not all([rsi, ma, change, price]):
             continue
@@ -39,7 +41,7 @@ async def get_top_signal():
         probability = round(100 - abs(rsi - 50) - abs(price - ma) / price * 100 - abs(change) * 2)
         if probability >= 65:
             signals.append({
-                "symbol": symbol,
+                "symbol": symbol.upper(),
                 "entry_price": round(price, 4),
                 "target_price": round(price * 1.05, 4),
                 "stop_loss": round(price * 0.97, 4),
@@ -51,7 +53,7 @@ async def get_top_signal():
         return None
 
     signals.sort(key=lambda x: x["probability"], reverse=True)
-    used = load_used_symbols()
+
     for signal in signals:
         if signal["symbol"] not in used:
             used.append(signal["symbol"])
