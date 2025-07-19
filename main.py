@@ -1,43 +1,28 @@
+import logging
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    ContextTypes
-)
+import nest_asyncio
+from telegram.ext import ApplicationBuilder
 from handlers import start_handler, button_callback_handler
 
-TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
+from config import TELEGRAM_TOKEN, TELEGRAM_USER_ID
+from utils import schedule_daily_signal_check
 
-# Главное меню с кнопками
-keyboard = [
-    [InlineKeyboardButton("Получить сигнал", callback_data="get_signal")],
-    [InlineKeyboardButton("Сбросить кэш", callback_data="reset_cache")],
-    [InlineKeyboardButton("Остановить все отслеживания", callback_data="stop_tracking")]
-]
-markup = InlineKeyboardMarkup(keyboard)
+nest_asyncio.apply()  # ключевое для Replit / Railway
 
-async def command_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Добро пожаловать в новую жизнь, Корбан!",
-        reply_markup=markup
-    )
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 
-async def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", command_start))
-    app.add_handler(CallbackQueryHandler(button_callback_handler))
-    print("Бот запущен.")
+app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+# Регистрируем обработчики
+app.add_handler(start_handler)
+app.add_handler(button_callback_handler)
+
+# Планируем ежедневную задачу
+async def run():
+    schedule_daily_signal_check(app, TELEGRAM_USER_ID)
     await app.run_polling()
 
-# --- ЗАПУСК С УЧЁТОМ ОШИБКИ EVENT LOOP ---
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except RuntimeError as e:
-        if "This event loop is already running" in str(e):
-            import nest_asyncio
-            nest_asyncio.apply()
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(main())
-        else:
-            raise
+# Просто вызываем корутину напрямую без asyncio.run()
+asyncio.get_event_loop().create_task(run())
