@@ -1,39 +1,41 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, Update
+from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from analysis import get_top_signal
 from tracking import start_tracking, stop_all_trackings
+from utils import reset_cache
+from config import OWNER_ID
 
-def get_reply_keyboard():
-    return ReplyKeyboardMarkup([
-        ["📈 Получить сигнал"],
-        ["🛑 Остановить все отслеживания"],
-        ["♻️ Сбросить кеш"]
-    ], resize_keyboard=True)
-
-async def start_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
+# Команда /start
+async def start_command_handler(update: Update, context: CallbackContext):
+    inline_keyboard = [
         [InlineKeyboardButton("📈 Получить сигнал", callback_data="get_signal")],
         [InlineKeyboardButton("🛑 Остановить все отслеживания", callback_data="stop_tracking")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup_inline = InlineKeyboardMarkup(inline_keyboard)
+
+    reply_keyboard = [
+        [KeyboardButton("Получить сигнал")],
+        [KeyboardButton("Остановить все отслеживания")],
+        [KeyboardButton("Сбросить кеш")]
+    ]
+    reply_markup_panel = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
 
     await update.message.reply_text(
         "Добро пожаловать в новую жизнь, Корбан!",
-        reply_markup=reply_markup
+        reply_markup=reply_markup_inline
     )
-
     await update.message.reply_text(
         "Выберите действие:",
-        reply_markup=get_reply_keyboard()
+        reply_markup=reply_markup_panel
     )
 
-async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Обработка inline-кнопок под сообщением
+async def button_callback_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
 
     if query.data == "get_signal":
         signal = await get_top_signal()
-
         if signal:
             message = (
                 f"Монета: *{signal['symbol']}*\n"
@@ -59,10 +61,11 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         start_tracking(symbol)
         await query.message.reply_text(f"🔔 Теперь отслеживаем монету *{symbol}*", parse_mode="Markdown")
 
-async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
+# Обработка reply-кнопок в панели
+async def message_handler(update: Update, context: CallbackContext):
+    text = update.message.text.strip().lower()
 
-    if "сигнал" in text.lower():
+    if "получить сигнал" in text:
         signal = await get_top_signal()
         if signal:
             message = (
@@ -80,11 +83,14 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             await update.message.reply_text("Нет подходящих сигналов. Попробуй позже.")
 
-    elif "остановить" in text.lower():
+    elif "остановить" in text:
         stop_all_trackings()
-        await update.message.reply_text("⛔️ Все отслеживания остановлены.")
+        await update.message.reply_text("⛔️ Отслеживание всех монет остановлено.")
 
-    elif "сброс" in text.lower():
-        from crypto_utils import reset_cache
+    elif "сбросить кеш" in text:
         reset_cache()
-        await update.message.reply_text("♻️ Кеш очищен.")
+        await update.message.reply_text("♻️ Кеш сброшен. Попробуй снова получить сигнал.")
+
+# Объявление обработчиков
+start_handler = CommandHandler("start", start_command_handler)
+button_handler = CallbackQueryHandler(button_callback_handler)
