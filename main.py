@@ -8,7 +8,7 @@ from handlers import start_handler, button_callback_handler
 
 TOKEN = "8148906065:AAEw8yAPKnhjw3AK2tsYEo-h9LVj74xJS4c"
 
-# Основные кнопки
+# Главное меню с кнопками
 keyboard = [
     [InlineKeyboardButton("Получить сигнал", callback_data="get_signal")],
     [InlineKeyboardButton("Сбросить кэш", callback_data="reset_cache")],
@@ -24,13 +24,12 @@ async def command_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", command_start))
     app.add_handler(CallbackQueryHandler(button_callback_handler))
-
     print("Бот запущен.")
     await app.run_polling()
 
+# --- ЗАПУСК С УЧЁТОМ ОШИБКИ EVENT LOOP ---
 if __name__ == "__main__":
     try:
         asyncio.run(main())
@@ -38,6 +37,7 @@ if __name__ == "__main__":
         if "This event loop is already running" in str(e):
             import nest_asyncio
             nest_asyncio.apply()
-            asyncio.get_event_loop().run_until_complete(main())
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(main())
         else:
             raise
