@@ -6,10 +6,10 @@ from handlers import (
     text_message_handler
 )
 from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters
-from config import BOT_TOKEN
+from config import TELEGRAM_BOT_TOKEN as BOT_TOKEN
 
 async def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command_handler))
     app.add_handler(CallbackQueryHandler(button_callback_handler))
