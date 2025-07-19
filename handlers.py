@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from analysis import get_top_signals
-from tracking import stop_all_tracking, track_coin_price
+from tracking import stop_all_trackings, track_coin_price
 from crypto_utils import reset_top_signals_cache
 
 # Главные кнопки
@@ -31,7 +31,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_markup
     )
 
-# Обработка текстовых сообщений (альтернатива кнопкам)
+# Обработка текстовых сообщений
 async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     if "сброс" in text:
@@ -94,7 +94,7 @@ async def reset_cache_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # Остановить все отслеживания
 async def stop_tracking_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, query=None):
-    stop_all_tracking()
+    stop_all_trackings()
     text = "Все отслеживания остановлены."
     if query:
         await query.edit_message_text(text, reply_markup=main_markup)
