@@ -1,3 +1,4 @@
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
@@ -15,7 +16,6 @@ keyboard = [
     [InlineKeyboardButton("Сбросить кеш", callback_data="reset_cache")],
     [InlineKeyboardButton("Остановить все отслеживания", callback_data="stop_tracking")]
 ]
-
 markup = InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -24,15 +24,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=markup
     )
 
-def main():
+async def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT, text_message_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
     app.add_handler(CallbackQueryHandler(button_callback_handler))
 
     print("Бот запущен.")
-    app.run_polling()  # Запускаем напрямую, без asyncio.run()
+    await app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
