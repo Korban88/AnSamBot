@@ -1,6 +1,5 @@
 import json
 import os
-import aiohttp
 import asyncio
 from crypto_list import CRYPTO_LIST
 from crypto_utils import get_current_prices
@@ -47,18 +46,8 @@ async def get_top_signals():
     top_signals.sort(key=lambda x: x["probability"], reverse=True)
     top_signals = top_signals[:3]
 
-    if top_signals:
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump({"top_signals": top_signals}, f, ensure_ascii=False, indent=2)
-        print(f"Топ монет сформирован: {[s['name'] for s in top_signals]}")
-    else:
-        if os.path.exists(CACHE_FILE):
-            os.remove(CACHE_FILE)
-        print("Нет подходящих монет, топ не сформирован.")
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump({"top_signals": top_signals}, f, ensure_ascii=False, indent=2)
 
+    print(f"Топ монет сформирован: {[s['name'] for s in top_signals]}")
     return top_signals
-
-def reset_top_signals_cache():
-    if os.path.exists(CACHE_FILE):
-        os.remove(CACHE_FILE)
-        print("Кеш сигналов очищен.")
