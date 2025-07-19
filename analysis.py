@@ -9,7 +9,10 @@ from crypto_utils import get_current_prices
 CACHE_FILE = "top_signals_cache.json"
 
 def is_valid_price(price):
-    return price is not None and not isinstance(price, str) and price > 0 and not math.isnan(price)
+    try:
+        return isinstance(price, (int, float)) and price > 0 and not math.isnan(price)
+    except:
+        return False
 
 async def get_top_signals():
     if os.path.exists(CACHE_FILE):
@@ -34,15 +37,14 @@ async def get_top_signals():
         entry_price = price_data.get("usd")
         change_24h = price_data.get("usd_24h_change")
 
-        # Исключаем монеты без нормальной цены
         if not is_valid_price(entry_price) or not isinstance(change_24h, (float, int)):
+            print(f"Пропущено: {coin_name} — некорректная цена ({entry_price}) или изменение ({change_24h})")
             continue
 
-        # Исключаем монеты с падением > 3%
         if change_24h < -3:
+            print(f"Пропущено: {coin_name} — падение за 24ч: {change_24h:.2f}%")
             continue
 
-        # Пример оценки вероятности (упрощённо)
         score = max(0, min(1, 0.7 + (0.03 - abs(change_24h) / 100)))
         probability = round(score * 100, 2)
 
@@ -55,11 +57,9 @@ async def get_top_signals():
             "probability": probability
         })
 
-    # Сортировка и выбор топ-3
     top_signals.sort(key=lambda x: x["probability"], reverse=True)
     top_signals = top_signals[:3]
 
-    # Кэш только если есть сигналы
     if top_signals:
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump({"top_signals": top_signals}, f, ensure_ascii=False, indent=2)
