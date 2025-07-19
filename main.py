@@ -2,7 +2,7 @@ import asyncio
 import nest_asyncio
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from config import TELEGRAM_BOT_TOKEN, OWNER_ID
-from handlers import start_handler, button_callback_handler
+from handlers import start_handler, button_handler
 from scheduler import schedule_daily_signal_check
 
 nest_asyncio.apply()  # Обход ошибки "event loop is already running"
