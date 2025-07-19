@@ -1,6 +1,6 @@
+import json
 from crypto_utils import get_market_data
 from crypto_list import MONITORED_SYMBOLS
-import json
 
 used_symbols_file = "used_symbols.json"
 
@@ -15,11 +15,11 @@ def save_used_symbols(symbols):
     with open(used_symbols_file, "w") as f:
         json.dump(symbols[-6:], f)
 
-def get_top_signal():
+async def get_top_signal():
     signals = []
 
     for symbol in MONITORED_SYMBOLS:
-        data = get_market_data(symbol)
+        data = await get_market_data(symbol)
 
         if not data:
             continue
