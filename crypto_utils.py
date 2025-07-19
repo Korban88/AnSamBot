@@ -1,69 +1,74 @@
 import aiohttp
+import asyncio
 import json
+import time
 import os
-from datetime import datetime, timedelta
 
 INDICATORS_CACHE_FILE = "indicators_cache.json"
 
-async def get_current_prices(crypto_ids):
-    url = (
-        "https://api.coingecko.com/api/v3/simple/price"
-        f"?ids={','.join(crypto_ids)}"
-        "&vs_currencies=usd"
-        "&include_24hr_change=true"
-    )
-
-    async with aiohttp.ClientSession() as session:
+async def fetch_coin_data(session, coin_id):
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}?localization=false&tickers=false&community_data=false&developer_data=false&sparkline=false"
+    try:
         async with session.get(url) as response:
             if response.status != 200:
-                print(f"Ошибка при получении цен: {response.status}")
-                return {}
-
+                return None
             data = await response.json()
-            result = {}
+            market_data = data.get("market_data", {})
+            return {
+                "current_price": market_data.get("current_price", {}).get("usd"),
+                "change_24h": market_data.get("price_change_percentage_24h"),
+                "volume": market_data.get("total_volume", {}).get("usd")
+            }
+    except Exception:
+        return None
 
-            for coin_id in crypto_ids:
-                coin_data = data.get(coin_id)
-                if coin_data and "usd" in coin_data:
-                    result[coin_id] = {
-                        "usd": coin_data["usd"],
-                        "usd_24h_change": coin_data.get("usd_24h_change", 0.0)
-                    }
-            return result
-
-def load_indicators_cache():
+def load_cached_indicators():
     if os.path.exists(INDICATORS_CACHE_FILE):
-        with open(INDICATORS_CACHE_FILE, "r", encoding="utf-8") as f:
+        with open(INDICATORS_CACHE_FILE, "r") as f:
             return json.load(f)
     return {}
 
-def save_indicators_cache(cache):
-    with open(INDICATORS_CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
+def save_cached_indicators(data):
+    with open(INDICATORS_CACHE_FILE, "w") as f:
+        json.dump(data, f)
 
-def is_cache_expired(timestamp_str, ttl_minutes=10):
-    try:
-        timestamp = datetime.fromisoformat(timestamp_str)
-        return datetime.utcnow() - timestamp > timedelta(minutes=ttl_minutes)
-    except Exception:
-        return True
-
-def get_cached_indicator(cache, coin_id, indicator):
-    data = cache.get(coin_id, {})
-    if indicator in data and not is_cache_expired(data[indicator]["timestamp"]):
-        return data[indicator]["value"]
-    return None
-
-def set_cached_indicator(cache, coin_id, indicator, value):
-    if coin_id not in cache:
-        cache[coin_id] = {}
-    cache[coin_id][indicator] = {
-        "value": value,
-        "timestamp": datetime.utcnow().isoformat()
+async def fetch_rsi_ma(session, coin_id):
+    # ⚠️ Заглушка: замени на реальный источник данных RSI/MA при подключении
+    return {
+        "rsi": 45 + hash(coin_id) % 20,      # от 45 до 65
+        "ma": 1.01,                          # условно MA = 1.01 USDT
     }
 
-def reset_top_signals_cache():
-    try:
-        os.remove("top_signals_cache.json")
-    except FileNotFoundError:
-        pass
+async def get_market_data(coin_ids):
+    cache = load_cached_indicators()
+    now = time.time()
+    updated = {}
+    results = {}
+
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for coin in coin_ids:
+            coin_id = coin.lower()
+            coin_cached = cache.get(coin_id, {})
+            if not coin_cached or now - coin_cached.get("timestamp", 0) > 3600:
+                tasks.append((coin_id, fetch_coin_data(session, coin_id)))
+            else:
+                results[coin] = coin_cached["data"]
+
+        fetched = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
+
+        for (coin_id, _), data in zip(tasks, fetched):
+            if isinstance(data, dict):
+                indicators = await fetch_rsi_ma(session, coin_id)
+                combined = {**data, **indicators}
+                results[coin_id] = combined
+                updated[coin_id] = {
+                    "timestamp": now,
+                    "data": combined
+                }
+
+    if updated:
+        cache.update(updated)
+        save_cached_indicators(cache)
+
+    return results
