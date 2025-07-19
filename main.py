@@ -3,16 +3,16 @@ import asyncio
 import nest_asyncio
 from telegram.ext import ApplicationBuilder
 from handlers import start_handler, button_callback_handler
-from config import TELEGRAM_TOKEN, TELEGRAM_USER_ID
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_USER_ID
 from utils import schedule_daily_signal_check
 
-nest_asyncio.apply()  # применяем для поддержки уже активного event loop
+nest_asyncio.apply()
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
 # Регистрируем обработчики
 app.add_handler(start_handler)
