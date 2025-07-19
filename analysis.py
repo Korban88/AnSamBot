@@ -19,7 +19,7 @@ async def get_top_signal():
     signals = []
 
     for symbol in MONITORED_SYMBOLS:
-        data = await get_market_data(symbol)
+        data = get_market_data(symbol)
 
         if not data:
             continue
