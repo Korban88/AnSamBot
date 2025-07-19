@@ -1,78 +1,61 @@
 import asyncio
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+import time
+from telegram import Bot
 
-# Хранилище задач отслеживания
-tracking_tasks = {}
+tracked_coins = {}
 
-# Отслеживание монеты
-async def track_coin_price(update, context, coin_id, query=None):
-    user_id = update.effective_user.id
+CHECK_INTERVAL = 600  # 10 минут
+TARGET_INCREASE_1 = 3.5  # %
+TARGET_INCREASE_2 = 5.0  # %
+TIMEOUT_HOURS = 12
 
-    # Отменяем предыдущее отслеживание этой монеты
-    if user_id in tracking_tasks and coin_id in tracking_tasks[user_id]:
-        tracking_tasks[user_id][coin_id].cancel()
 
-    # Создаём задачу отслеживания
-    task = asyncio.create_task(check_price_periodically(context, user_id, coin_id))
-
-    # Сохраняем задачу
-    if user_id not in tracking_tasks:
-        tracking_tasks[user_id] = {}
-    tracking_tasks[user_id][coin_id] = task
-
-    msg = f"Вы начали отслеживание монеты *{coin_id}*. Я сообщу, если она вырастет на +3.5% или +5%."
-    if query:
-        await query.edit_message_text(msg, parse_mode="Markdown")
-    else:
-        await update.message.reply_text(msg, parse_mode="Markdown")
-
-# Периодическая проверка цены
-async def check_price_periodically(context, user_id, coin_id):
+async def get_price(coin_id):
     from crypto_utils import get_current_prices
+    prices = await get_current_prices([coin_id])
+    return prices.get(coin_id, {}).get("usd")
 
-    initial_data = await get_current_prices([coin_id])
-    if coin_id not in initial_data:
+
+async def track_coin_price(coin_id, chat_id, bot: Bot):
+    start_price = await get_price(coin_id)
+    if not start_price:
+        await bot.send_message(chat_id, f"Не удалось получить цену {coin_id}")
         return
 
-    initial_price = initial_data[coin_id]["usd"]
-    started_at = context.application.create_task_time
+    start_time = time.time()
+    tracked_coins[coin_id] = True
 
-    while True:
-        await asyncio.sleep(600)  # каждые 10 минут
-
-        current_data = await get_current_prices([coin_id])
-        if coin_id not in current_data:
+    while tracked_coins.get(coin_id, False):
+        current_price = await get_price(coin_id)
+        if not current_price:
+            await asyncio.sleep(CHECK_INTERVAL)
             continue
 
-        current_price = current_data[coin_id]["usd"]
-        change = (current_price - initial_price) / initial_price * 100
+        change_percent = ((current_price - start_price) / start_price) * 100
 
-        if change >= 5:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"🚀 Монета *{coin_id}* выросла на *+5%*! С текущей ценой: {current_price}",
-                parse_mode="Markdown"
-            )
+        if change_percent >= TARGET_INCREASE_2:
+            await bot.send_message(chat_id, f"📈 {coin_id.upper()} вырос на +{TARGET_INCREASE_2}%!")
+            tracked_coins.pop(coin_id, None)
             break
-        elif change >= 3.5:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"🔔 Монета *{coin_id}* достигла +3.5% роста. Текущая цена: {current_price}",
-                parse_mode="Markdown"
+        elif change_percent >= TARGET_INCREASE_1:
+            await bot.send_message(chat_id, f"🔔 {coin_id.upper()} достиг +{TARGET_INCREASE_1}% роста.")
+        elif time.time() - start_time > TIMEOUT_HOURS * 3600:
+            await bot.send_message(
+                chat_id,
+                f"⏱ Отслеживание {coin_id.upper()} завершено. За 12ч изменение составило {round(change_percent, 2)}%"
             )
-
-        # Оповещение если 12 часов прошло без результата
-        elapsed = (context.application.create_task_time - started_at).total_seconds() / 3600
-        if elapsed > 12:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"⏱ Монета *{coin_id}* не показала роста +3.5% за 12 часов. Итоговая динамика: {change:.2f}%"
-            )
+            tracked_coins.pop(coin_id, None)
             break
 
-# Остановка всех отслеживаний
+        await asyncio.sleep(CHECK_INTERVAL)
+
+
+def start_tracking(coin_id, chat_id):
+    from telegram import Bot
+    from config import TOKEN
+    bot = Bot(token=TOKEN)
+    asyncio.create_task(track_coin_price(coin_id, chat_id, bot))
+
+
 def stop_all_trackings():
-    for user_tasks in tracking_tasks.values():
-        for task in user_tasks.values():
-            task.cancel()
-    tracking_tasks.clear()
+    tracked_coins.clear()
