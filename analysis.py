@@ -2,19 +2,15 @@ import json
 import os
 import aiohttp
 import asyncio
-import math
 from crypto_list import CRYPTO_LIST
 from crypto_utils import get_current_prices
 
 CACHE_FILE = "top_signals_cache.json"
-
-def is_valid_price(price):
-    try:
-        return isinstance(price, (int, float)) and price > 0 and not math.isnan(price)
-    except:
-        return False
+_last_top_ids = []
 
 async def get_top_signals():
+    global _last_top_ids
+
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
             cached = json.load(f)
@@ -31,22 +27,19 @@ async def get_top_signals():
         coin_name = coin["name"]
         price_data = prices.get(coin_id)
 
-        if not price_data:
+        if not price_data or not price_data.get("usd"):
             continue
 
-        entry_price = price_data.get("usd")
-        change_24h = price_data.get("usd_24h_change")
+        entry_price = price_data["usd"]
+        change_24h = price_data.get("usd_24h_change", 0)
+        volume = price_data.get("usd_24h_vol", 1)
 
-        if not is_valid_price(entry_price) or not isinstance(change_24h, (float, int)):
-            print(f"Пропущено: {coin_name} — некорректная цена ({entry_price}) или изменение ({change_24h})")
+        if change_24h < -3 or entry_price == 0:
             continue
 
-        if change_24h < -3:
-            print(f"Пропущено: {coin_name} — падение за 24ч: {change_24h:.2f}%")
-            continue
-
-        score = max(0, min(1, 0.7 + (0.03 - abs(change_24h) / 100)))
-        probability = round(score * 100, 2)
+        # Формула оценки
+        score = 0.7 + (min(change_24h, 10) / 100) + (min(volume / 1e7, 1) * 0.05)
+        score = max(0, min(1, score))
 
         top_signals.append({
             "id": coin_id,
@@ -54,18 +47,18 @@ async def get_top_signals():
             "entry_price": round(entry_price, 4),
             "target_price": round(entry_price * 1.05, 4),
             "stop_loss": round(entry_price * 0.97, 4),
-            "probability": probability
+            "probability": round(score * 100, 2)
         })
+
+    # Исключаем повторы
+    top_signals = [s for s in top_signals if s["id"] not in _last_top_ids]
 
     top_signals.sort(key=lambda x: x["probability"], reverse=True)
     top_signals = top_signals[:3]
+    _last_top_ids = [s["id"] for s in top_signals]
 
-    if top_signals:
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump({"top_signals": top_signals}, f, ensure_ascii=False, indent=2)
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump({"top_signals": top_signals}, f, ensure_ascii=False, indent=2)
 
-        print(f"Топ монет сформирован: {[s['name'] for s in top_signals]}")
-    else:
-        print("Нет подходящих монет для сигнала.")
-
+    print(f"Топ монет сформирован: {[s['name'] for s in top_signals]}")
     return top_signals
