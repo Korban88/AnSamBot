@@ -1,29 +1,26 @@
-import logging
 import asyncio
-import nest_asyncio
+import logging
 from telegram.ext import ApplicationBuilder
 from handlers import start_handler, button_callback_handler
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_USER_ID
-from utils import schedule_daily_signal_check
+from scheduler import schedule_daily_signal_check
+from config import TELEGRAM_BOT_TOKEN, OWNER_ID
+import nest_asyncio
 
 nest_asyncio.apply()
+logging.basicConfig(level=logging.INFO)
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+async def main():
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    # Регистрация хендлеров
+    app.add_handler(start_handler)
+    app.add_handler(button_callback_handler)
 
-# Регистрируем обработчики
-app.add_handler(start_handler)
-app.add_handler(button_callback_handler)
+    # Планирование ежедневной отправки сигнала в 08:00
+    schedule_daily_signal_check(app, OWNER_ID)
 
-# Планируем ежедневную задачу
-async def run():
-    schedule_daily_signal_check(app, TELEGRAM_USER_ID)
+    print("Бот запущен.")
     await app.run_polling()
 
-# Запускаем бота через уже существующий event loop
-loop = asyncio.get_event_loop()
-loop.create_task(run())
-loop.run_forever()
+if __name__ == "__main__":
+    asyncio.run(main())
