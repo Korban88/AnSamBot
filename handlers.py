@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from analysis import get_top_signal
 from tracking import start_tracking, stop_all_trackings
-import os
+from utils import reset_cache
 
 keyboard = [
     [InlineKeyboardButton("Получить сигнал", callback_data="get_signal")],
@@ -11,20 +11,8 @@ keyboard = [
 ]
 markup = InlineKeyboardMarkup(keyboard)
 
-
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Добро пожаловать в новую жизнь, Корбан!",
-        reply_markup=markup
-    )
-
-
-async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Используй кнопки ниже для работы с ботом.",
-        reply_markup=markup
-    )
-
+    await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=markup)
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -33,21 +21,28 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     if query.data == "get_signal":
         signal = await get_top_signal()
         if signal:
-            await query.edit_message_text(signal, reply_markup=markup, parse_mode="MarkdownV2")
+            text = (
+                f"*Монета:* {signal['symbol']}\n"
+                f"*Цена входа:* {signal['entry_price']}\n"
+                f"*Цель:* {signal['target_price']} (+5%)\n"
+                f"*Стоп-лосс:* {signal['stop_loss']}\n"
+                f"*Текущая цена:* {signal['current_price']}\n"
+                f"*Изменение за 24 часа:* {signal['change_24h']}%\n"
+                f"*Вероятность роста:* {signal['probability']}%"
+            )
+            button = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Следить за монетой", callback_data=f"track_{signal['symbol']}")]
+            ])
+            await query.message.reply_text(text, reply_markup=button, parse_mode="Markdown")
         else:
-            await query.edit_message_text("Не удалось получить надёжный сигнал.", reply_markup=markup)
-
+            await query.message.reply_text("Нет подходящих монет для сигнала.")
     elif query.data == "reset_cache":
-        await reset_cache_handler(update, context)
-
+        reset_cache()
+        await query.message.reply_text("Кеш очищен.")
     elif query.data == "stop_tracking":
-        await stop_all_trackings()
-        await query.edit_message_text("⛔️ Все отслеживания остановлены.", reply_markup=markup)
-
-
-async def reset_cache_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        os.remove("indicators_cache.json")
-        await update.callback_query.edit_message_text("🧹 Кеш успешно сброшен.", reply_markup=markup)
-    except FileNotFoundError:
-        await update.callback_query.edit_message_text("🧹 Кеш уже пуст.", reply_markup=markup)
+        stop_all_trackings()
+        await query.message.reply_text("Все отслеживания остановлены.")
+    elif query.data.startswith("track_"):
+        symbol = query.data.split("_")[1]
+        await start_tracking(symbol, query.message.chat_id, context)
+        await query.message.reply_text(f"Монета {symbol} будет отслеживаться.")
