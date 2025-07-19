@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 
 INDICATORS_CACHE_FILE = "indicators_cache.json"
 
-
 async def get_current_prices(crypto_ids):
     url = (
         "https://api.coingecko.com/api/v3/simple/price"
@@ -19,8 +18,18 @@ async def get_current_prices(crypto_ids):
             if response.status != 200:
                 print(f"Ошибка при получении цен: {response.status}")
                 return {}
-            return await response.json()
 
+            data = await response.json()
+            result = {}
+
+            for coin_id in crypto_ids:
+                coin_data = data.get(coin_id)
+                if coin_data and "usd" in coin_data:
+                    result[coin_id] = {
+                        "usd": coin_data["usd"],
+                        "usd_24h_change": coin_data.get("usd_24h_change", 0.0)
+                    }
+            return result
 
 def load_indicators_cache():
     if os.path.exists(INDICATORS_CACHE_FILE):
@@ -28,11 +37,9 @@ def load_indicators_cache():
             return json.load(f)
     return {}
 
-
 def save_indicators_cache(cache):
     with open(INDICATORS_CACHE_FILE, "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False, indent=2)
-
 
 def is_cache_expired(timestamp_str, ttl_minutes=10):
     try:
@@ -41,13 +48,11 @@ def is_cache_expired(timestamp_str, ttl_minutes=10):
     except Exception:
         return True
 
-
 def get_cached_indicator(cache, coin_id, indicator):
     data = cache.get(coin_id, {})
     if indicator in data and not is_cache_expired(data[indicator]["timestamp"]):
         return data[indicator]["value"]
     return None
-
 
 def set_cached_indicator(cache, coin_id, indicator, value):
     if coin_id not in cache:
@@ -56,7 +61,6 @@ def set_cached_indicator(cache, coin_id, indicator, value):
         "value": value,
         "timestamp": datetime.utcnow().isoformat()
     }
-
 
 def reset_top_signals_cache():
     try:
