@@ -1,7 +1,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler
 from analysis import get_top_signal
-from tracking import start_tracking, stop_all_tracking
+from tracking import start_tracking, stop_all_trackings  # исправлено имя
 from config import OWNER_ID
 
 def start_command_handler(update: Update, context: CallbackContext):
@@ -41,7 +41,7 @@ def button_callback_handler(update: Update, context: CallbackContext):
             query.message.reply_text("Нет подходящих сигналов. Попробуй позже.")
 
     elif query.data == "stop_tracking":
-        stop_all_tracking()
+        stop_all_trackings()
         query.message.reply_text("⛔️ Отслеживание всех монет остановлено.")
 
     elif query.data.startswith("track_"):
