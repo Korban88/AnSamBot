@@ -2,25 +2,24 @@ import json
 from crypto_utils import get_market_data
 from crypto_list import MONITORED_SYMBOLS
 
-used_symbols_file = "used_symbols.json"
+USED_SYMBOLS_FILE = "used_symbols.json"
 
 def load_used_symbols():
     try:
-        with open(used_symbols_file, "r") as f:
+        with open(USED_SYMBOLS_FILE, "r") as f:
             return json.load(f)
     except:
         return []
 
 def save_used_symbols(symbols):
-    with open(used_symbols_file, "w") as f:
+    with open(USED_SYMBOLS_FILE, "w") as f:
         json.dump(symbols[-6:], f)
 
 async def get_top_signal():
     signals = []
 
     for symbol in MONITORED_SYMBOLS:
-        data = get_market_data(symbol)
-
+        data = await get_market_data(symbol)
         if not data:
             continue
 
@@ -35,7 +34,15 @@ async def get_top_signal():
         if change < -3 or rsi > 70 or ma > price:
             continue
 
-        probability = round(100 - abs(rsi - 50) - abs(price - ma) / price * 100 - abs(change) * 2)
+        # Улучшенная формула вероятности
+        rsi_score = max(0, 20 - abs(rsi - 50))  # до 20
+        trend_score = max(0, 30 - abs(ma - price) / price * 100)  # до 30
+        change_score = max(0, 30 - abs(change) * 2)  # до 30
+
+        probability = round(50 + rsi_score + trend_score + change_score)
+        if probability > 100:
+            probability = 100
+
         if probability >= 65:
             signals.append({
                 "symbol": symbol,
