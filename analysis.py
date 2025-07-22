@@ -16,22 +16,25 @@ def evaluate_coin(coin):
     change_24h = coin.get("price_change_percentage_24h", 0)
 
     if not rsi or not ma7 or not price:
-        return 0, 0
+        logger.info(f"⚠️ Пропущена монета {coin.get('symbol', '?')}: недостаточно данных (rsi/ma7/price)")
+        return -100, 0  # резко исключить
 
     score = 0
 
-    # RSI: зона силы — 45–65
-    if 45 <= rsi <= 65:
+    # RSI: агрессивный диапазон 50–60
+    if 50 <= rsi <= 60:
         score += 2
-    elif 35 <= rsi < 45 or 65 < rsi <= 70:
+    elif 45 <= rsi < 50 or 60 < rsi <= 65:
         score += 1
     else:
+        logger.info(f"❌ {coin['symbol']}: RSI={rsi} — вне допустимого диапазона (50–60)")
         score -= 1
 
-    # MA7: восходящий тренд
+    # MA7: цена должна быть выше
     if price > ma7:
         score += 2
     else:
+        logger.info(f"❌ {coin['symbol']}: Цена ниже MA7 (price={price}, ma7={ma7})")
         score -= 1
 
     # 24ч изменение
@@ -40,11 +43,12 @@ def evaluate_coin(coin):
     elif change_24h > 2:
         score += 1
     elif change_24h < -3:
+        logger.info(f"❌ {coin['symbol']}: Падение за 24ч = {change_24h}% > допустимого")
         score -= 3
 
     # Итоговая вероятность
     probability = max(0, min(90, 60 + score * 5))
-    return score, probability
+    return score, round(probability, 2)
 
 async def analyze_cryptos():
     """
@@ -82,5 +86,8 @@ async def analyze_cryptos():
             "probability": coin["probability"]
         }
         top_signals.append(signal)
+
+    if not top_signals:
+        logger.info("⚠️ Нет подходящих монет по фильтрам.")
 
     return top_signals
