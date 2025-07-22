@@ -1,6 +1,8 @@
 import aiohttp
 import json
 import os
+from datetime import datetime, timedelta
+from statistics import mean
 
 INDICATOR_CACHE_FILE = "indicators_cache.json"
 
@@ -43,22 +45,76 @@ async def get_price(symbol):
     except:
         return None
 
+def calculate_rsi(prices, period=14):
+    if len(prices) < period + 1:
+        return None
+    gains = []
+    losses = []
+    for i in range(1, period + 1):
+        delta = prices[-i] - prices[-i - 1]
+        if delta >= 0:
+            gains.append(delta)
+        else:
+            losses.append(-delta)
+    avg_gain = mean(gains) if gains else 0
+    avg_loss = mean(losses) if losses else 0
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return round(rsi, 2)
+
+def calculate_ma(prices, period=5):
+    if len(prices) < period:
+        return None
+    return round(mean(prices[-period:]), 4)
+
 async def get_market_data(symbol):
     coin_id = SYMBOL_ID_MAP.get(symbol)
     if not coin_id:
         return None
-    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
+
+    cache = load_indicator_cache()
+    now = datetime.utcnow().isoformat()
+    if symbol in cache and "timestamp" in cache[symbol]:
+        cached_time = datetime.fromisoformat(cache[symbol]["timestamp"])
+        if datetime.utcnow() - cached_time < timedelta(hours=1):
+            return cache[symbol]["data"]
+
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=15&interval=daily"
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
+                chart = await resp.json()
+                prices = [p[1] for p in chart.get("prices", [])]
+                if not prices or len(prices) < 15:
+                    return None
+
+                rsi = calculate_rsi(prices)
+                ma = calculate_ma(prices)
+    except:
+        return None
+
+    # теперь получаем текущие данные
+    market_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(market_url) as resp:
                 data = await resp.json()
-                market_data = data.get("market_data", {})
-                return {
-                    "price": market_data.get("current_price", {}).get("usd"),
-                    "change_24h": market_data.get("price_change_percentage_24h"),
-                    "volume": market_data.get("total_volume", {}).get("usd"),
-                    "rsi": 50,  # Можно заменить на расчётный
-                    "ma": market_data.get("current_price", {}).get("usd")  # заглушка MA = текущая цена
+                m = data.get("market_data", {})
+                result = {
+                    "price": m.get("current_price", {}).get("usd"),
+                    "change_24h": m.get("price_change_percentage_24h"),
+                    "volume": m.get("total_volume", {}).get("usd"),
+                    "rsi": rsi,
+                    "ma": ma
                 }
+                # сохраняем в кэш
+                cache[symbol] = {
+                    "timestamp": now,
+                    "data": result
+                }
+                save_indicator_cache(cache)
+                return result
     except:
         return None
