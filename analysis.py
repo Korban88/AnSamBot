@@ -15,9 +15,16 @@ def evaluate_coin(coin):
     price = coin.get("current_price", 0)
     change_24h = coin.get("price_change_percentage_24h", 0)
 
+    symbol = coin.get("symbol", "?")
+
     if not rsi or not ma7 or not price:
-        logger.info(f"⚠️ Пропущена монета {coin.get('symbol', '?')}: недостаточно данных (rsi/ma7/price)")
-        return -100, 0  # резко исключить
+        logger.info(f"⚠️ Пропущена монета {symbol}: недостаточно данных (rsi/ma7/price)")
+        return -100, 0
+
+    # 🔴 Жёсткий фильтр: сильное падение
+    if change_24h < -5:
+        logger.info(f"❌ {symbol}: сильное падение за 24ч = {change_24h}% (откл.)")
+        return -100, 0
 
     score = 0
 
@@ -27,24 +34,26 @@ def evaluate_coin(coin):
     elif 45 <= rsi < 50 or 60 < rsi <= 65:
         score += 1
     else:
-        logger.info(f"❌ {coin['symbol']}: RSI={rsi} — вне допустимого диапазона (50–60)")
-        score -= 1
+        logger.info(f"🔸 {symbol}: RSI={rsi} вне зоны роста")
 
     # MA7: цена должна быть выше
     if price > ma7:
         score += 2
     else:
-        logger.info(f"❌ {coin['symbol']}: Цена ниже MA7 (price={price}, ma7={ma7})")
-        score -= 1
+        logger.info(f"🔸 {symbol}: цена ниже MA7 (price={price}, ma7={ma7})")
 
     # 24ч изменение
     if change_24h > 5:
         score += 2
     elif change_24h > 2:
         score += 1
-    elif change_24h < -3:
-        logger.info(f"❌ {coin['symbol']}: Падение за 24ч = {change_24h}% > допустимого")
-        score -= 3
+    elif 0 > change_24h >= -5:
+        # Мягкое падение — допускается только если есть признаки роста
+        if (rsi < 45 or price < ma7):
+            logger.info(f"❌ {symbol}: падение {change_24h}% без признаков разворота (RSI={rsi}, MA7={ma7})")
+            return -100, 0
+        else:
+            logger.info(f"✅ {symbol}: падение {change_24h}%, но есть признаки разворота")
 
     # Итоговая вероятность
     probability = max(0, min(90, 60 + score * 5))
