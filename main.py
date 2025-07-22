@@ -14,10 +14,7 @@ async def main():
     schedule_daily_signal_check(app, OWNER_ID)
 
     print("🚀 Бот запущен.")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await app.updater.idle()
+    await app.run_polling()
 
 if __name__ == "__main__":
     asyncio.run(main())
