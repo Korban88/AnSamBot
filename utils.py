@@ -47,25 +47,27 @@ async def cache_top_signals():
         json.dump(top_signals, f)
 
 def fnum(x):
-    """Округление до 2-3 знаков после точки, без лишних нулей"""
-    return f"{x:.3f}".rstrip('0').rstrip('.') if '.' in f"{x:.3f}" else f"{x:.3f}"
+    """Округление до 2 знаков после точки, без лишних нулей"""
+    return f"{x:.2f}".rstrip('0').rstrip('.') if '.' in f"{x:.2f}" else f"{x:.2f}"
 
 async def send_signal_message(user_id, context):
     await cache_top_signals()
     signal = get_next_top_signal()
 
     if signal:
-        price = float(signal["current_price"])
-        target_price = round(price * 1.05, 6)
-        stop_price = round(price * 0.97, 6)
+        entry_price = float(signal["entry"])
+        target_price = float(signal["target"])
+        stop_price = float(signal["stop_loss"])
+        change_24h = float(signal.get("change_24h", 0))
+        probability = signal.get("probability", "?")
 
         message = (
             f"*🚀 Сигнал на покупку: {signal['symbol']}*\n\n"
-            f"*Цена входа:* ${fnum(price)}\n"
+            f"*Цена входа:* ${fnum(entry_price)}\n"
             f"*Цель:* +5% → ${fnum(target_price)}\n"
             f"*Стоп-лосс:* -3% → ${fnum(stop_price)}\n"
-            f"*Изменение за 24ч:* {fnum(signal['price_change_percentage_24h'])}%\n"
-            f"*Вероятность роста:* {signal['probability']}%\n"
+            f"*Изменение за 24ч:* {fnum(change_24h)}%\n"
+            f"*Вероятность роста:* {probability}%\n"
         )
 
         keyboard = InlineKeyboardMarkup([
