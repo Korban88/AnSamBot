@@ -55,15 +55,15 @@ async def send_signal_message(user_id, context):
     signal = get_next_top_signal()
 
     if signal:
-        entry_price = float(signal["entry"])
-        target_price = float(signal["target"])
-        stop_price = float(signal["stop_loss"])
-        change_24h = float(signal.get("change_24h", 0))
+        price = float(signal.get("current_price", 0))
+        target_price = round(price * 1.05, 6)
+        stop_price = round(price * 0.97, 6)
+        change_24h = float(signal.get("price_change_percentage_24h", 0))
         probability = signal.get("probability", "?")
 
         message = (
             f"*🚀 Сигнал на покупку: {signal['symbol']}*\n\n"
-            f"*Цена входа:* ${fnum(entry_price)}\n"
+            f"*Цена входа:* ${fnum(price)}\n"
             f"*Цель:* +5% → ${fnum(target_price)}\n"
             f"*Стоп-лосс:* -3% → ${fnum(stop_price)}\n"
             f"*Изменение за 24ч:* {fnum(change_24h)}%\n"
