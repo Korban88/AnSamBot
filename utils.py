@@ -1,6 +1,7 @@
-import json
 import os
+import json
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from apscheduler.schedulers.background import BackgroundScheduler
 from config import OWNER_ID
 from analysis import get_top_signal
 from tracking import start_tracking
@@ -48,3 +49,12 @@ async def send_signal_message(app):
         parse_mode="Markdown",
         reply_markup=keyboard
     )
+
+def schedule_daily_signal_check(app):
+    """
+    Запускает планировщик отправки сигнала каждый день в 8:00 по МСК
+    """
+    scheduler = BackgroundScheduler(timezone="Europe/Moscow")
+    scheduler.add_job(lambda: app.create_task(send_signal_message(app)),
+                      trigger='cron', hour=8, minute=0, id='daily_signal')
+    scheduler.start()
