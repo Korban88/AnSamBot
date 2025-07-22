@@ -1,61 +1,49 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler, MessageHandler, filters
-import json
-import os
-import asyncio
-
-from analysis import analyze_cryptos
-from tracking import start_tracking, stop_all_trackings
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from utils import send_signal_message, reset_cache
+from tracking import start_tracking, stop_all_trackings
+from config import tracked_symbols
 
-# === Команда /start ===
-async def start_handler_func(update: Update, context: CallbackContext):
-    keyboard = [
-        [KeyboardButton("📈 Получить сигнал")],
-        [KeyboardButton("🛑 Остановить все отслеживания")],
-        [KeyboardButton("♻️ Сбросить кеш")]
-    ]
+# /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [['📈 Получить сигнал'], ['❌ Остановить все отслеживания'], ['🔁 Сбросить кеш']]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
+    await update.message.reply_text("Добро пожаловать в AnSam Bot", reply_markup=reply_markup)
 
-start_handler = CommandHandler("start", start_handler_func)
+start_handler = CommandHandler("start", start)
 
-# === Inline кнопки под сообщением ===
-async def button_handler_func(update: Update, context: CallbackContext):
+# Inline кнопки под сообщением
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    data = query.data
+    if query.data.startswith("track_"):
+        symbol = query.data.replace("track_", "")
+        if symbol in tracked_symbols:
+            await start_tracking(context, query.message.chat_id, symbol)
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.message.reply_text(f"⏱ Отслеживание {symbol} запущено.")
+        else:
+            await query.message.reply_text("Монета не поддерживается для отслеживания.")
+    elif query.data == "stop_all":
+        await stop_all_trackings()
+        await query.message.reply_text("🛑 Все отслеживания остановлены.")
 
-    if data.startswith("track:"):
-        symbol = data.split(":")[1]
-        await start_tracking(symbol, context.bot, query.message.chat_id)
-        await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text(f"🔔 Начал отслеживать монету: {symbol}")
+button_handler = CallbackQueryHandler(button_callback)
 
-button_handler = CallbackQueryHandler(button_handler_func)
+# Reply кнопки внизу
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip().lower()
 
-# === Reply кнопки в панели ===
-async def message_handler(update: Update, context: CallbackContext):
-    text = update.message.text
-
-    if text == "📈 Получить сигнал":
-        coins = await analyze_cryptos()
-
-        if not coins:
-            await update.message.reply_text("Сейчас нет подходящих монет по фильтрам.")
-            return
-
-        for coin in coins:
-            await send_signal_message(update.effective_chat.id, context.bot, coin)
-            await asyncio.sleep(1)
-
-    elif text == "🛑 Остановить все отслеживания":
-        await stop_all_trackings(update.effective_chat.id)
-        await update.message.reply_text("⛔️ Все отслеживания остановлены.")
-
-    elif text == "♻️ Сбросить кеш":
+    if "получить сигнал" in text:
+        await send_signal_message(update.message.chat_id, context)
+    elif "остановить" in text:
+        await stop_all_trackings()
+        await update.message.reply_text("🛑 Все отслеживания остановлены.")
+    elif "сбросить кеш" in text:
         reset_cache()
-        await update.message.reply_text("🧹 Кеш успешно сброшен.")
+        await update.message.reply_text("♻️ Кеш сброшен.")
+    else:
+        await update.message.reply_text("Выберите одну из команд.")
 
-message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), your_reply_function)
+message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
