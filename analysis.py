@@ -86,3 +86,11 @@ async def analyze_cryptos():
 
     sorted_coins = sorted(candidates, key=lambda x: x["probability"], reverse=True)
     return sorted_coins[:3]
+
+    def get_top_signal():
+    """
+    Синхронная обёртка для получения лучшего сигнала (монеты с максимальной вероятностью роста)
+    """
+    loop = asyncio.get_event_loop()
+    top_signals = loop.run_until_complete(analyze_cryptos())
+    return top_signals[0] if top_signals else None
