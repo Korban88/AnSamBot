@@ -1,7 +1,6 @@
 import aiohttp
 import json
 import os
-import random
 from datetime import datetime, timedelta
 
 CACHE_PATH = "indicators_cache.json"
@@ -19,6 +18,7 @@ def save_cache():
 
 def simulate_rsi(price_change):
     """Грубая симуляция RSI на основе 24h изменений"""
+    import random
     if price_change >= 10:
         return random.randint(65, 75)
     elif price_change >= 5:
@@ -32,6 +32,7 @@ def simulate_rsi(price_change):
 
 def simulate_ma7(current_price):
     """Симулируем MA7 немного ниже текущей цены"""
+    import random
     variation = random.uniform(-0.03, 0.03)
     return round(current_price * (1 - variation), 4)
 
