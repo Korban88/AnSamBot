@@ -25,64 +25,65 @@ async def get_top_signal():
 
         data = await get_market_data(symbol)
         if not data:
-            print(f"⚠️ {symbol}: нет данных с API")
             continue
 
-        rsi = data.get("rsi")
-        ma = data.get("ma")
-        change = data.get("change_24h")
         price = data.get("price")
+        change = data.get("change_24h")
+        rsi = data.get("rsi")
+        volume = data.get("volume_24h")
+        volat = data.get("volatility")
+        vol_growth = data.get("volume_growth")
 
-        if not all([rsi, ma, change, price]):
-            print(f"⚠️ {symbol}: отсутствуют ключевые метрики")
+        if not all([price, change, rsi, volume, volat, vol_growth]):
             continue
 
-        # Строгий фильтр — отсеиваем сомнительные монеты
-        if change < -5:
-            print(f"⛔ {symbol} исключён: падение {change:.2f}%")
+        # Жёсткие условия взрывного роста
+        if volume < 2_000_000:  # низкий объём
             continue
-        if rsi > 75 or rsi < 25:
-            print(f"⛔ {symbol} исключён: RSI={rsi}")
+        if change < -4:  # сильное падение — риск
             continue
-        if ma > price * 1.05:
-            print(f"⛔ {symbol} исключён: MA выше цены (MA={ma}, P={price})")
+        if vol_growth < 20:  # объём не растёт — нет импульса
+            continue
+        if volat < 4:  # нет волатильности — неинтересно
+            continue
+        if rsi > 70:  # перекуплен
             continue
 
-        # Улучшенная формула вероятности
-        base = 40
-        rsi_score = max(0, 15 - abs(rsi - 50))  # до 15
-        trend_score = max(0, 25 - abs(ma - price) / price * 100)  # до 25
-        change_score = max(0, 20 - abs(change) * 2)  # до 20
+        # Формула оценки взрывного потенциала
+        score = 0
+        if 40 < rsi < 60: score += 20
+        if vol_growth >= 50: score += 25
+        if volat >= 6: score += 25
+        if change >= 1: score += 10
+        if 3 <= volat < 6: score += 10
+        if rsi < 40: score += 5  # отскок возможен
 
-        probability = round(base + rsi_score + trend_score + change_score)
-        probability = min(probability, 90)
-
-        print(f"✅ {symbol} прошёл отбор: RSI={rsi}, MA={ma}, P={price}, Δ24h={change}, → {probability}%")
+        probability = min(90, 50 + score)
 
         if probability >= 65:
             signals.append({
                 "symbol": symbol,
                 "entry_price": round(price, 4),
-                "target_price": round(price * 1.05, 4),
-                "stop_loss": round(price * 0.97, 4),
+                "target_price": round(price * 1.07, 4),
+                "stop_loss": round(price * 0.94, 4),
                 "probability": probability,
-                "change_24h": round(change, 2)
+                "change_24h": round(change, 2),
+                "volume_growth": round(vol_growth, 1),
+                "volatility": round(volat, 2)
             })
 
     if not signals:
-        print("❌ Нет подходящих монет среди всех доступных")
+        print("❌ Нет агрессивных кандидатов на памп.")
         return None
 
     signals.sort(key=lambda x: x["probability"], reverse=True)
 
-    # Первая подходящая монета, не использованная ранее
     for signal in signals:
-        symbol = signal["symbol"]
-        if symbol not in used:
-            used.append(symbol)
+        if signal["symbol"] not in used:
+            used.append(signal["symbol"])
             save_used_symbols(used)
-            print(f"📤 Сигнал выбран: {symbol} с вероятностью {signal['probability']}%")
+            print(f"📢 Сигнал: {signal['symbol']} → вероятность {signal['probability']}%")
             return signal
 
-    print("🔁 Все топ монеты уже использовались")
+    print("🔁 Все подходящие монеты уже использованы.")
     return None
