@@ -86,9 +86,10 @@ async def get_all_coin_data(coin_ids):
     save_cache()
     return result
 
-async def get_price(symbol):
+async def get_current_price(symbol):
     """
     Получает текущую цену монеты по её символу.
+    Совместима с CoinTracker и tracking.py
     """
     from crypto_list import TELEGRAM_WALLET_COIN_IDS
 
