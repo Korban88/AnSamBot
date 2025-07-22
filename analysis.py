@@ -31,7 +31,6 @@ async def get_top_signal():
         if not all([rsi, ma, change, price]):
             continue
 
-        # Условия отсечки мусора
         if change < -5:
             continue
         if rsi > 75 or rsi < 25:
@@ -39,14 +38,13 @@ async def get_top_signal():
         if ma > price * 1.05:
             continue
 
-        # Формула вероятности
-        rsi_score = max(0, 20 - abs(rsi - 50))  # до 20
-        trend_score = max(0, 30 - abs(ma - price) / price * 100)  # до 30
-        change_score = max(0, 30 - abs(change) * 1.5)  # до 30
+        # Расчёт вероятности (реалистично)
+        rsi_score = max(0, 20 - abs(rsi - 50))
+        trend_score = max(0, 30 - abs(ma - price) / price * 100)
+        change_score = max(0, 30 - abs(change) * 1.5)
 
         probability = round(50 + rsi_score + trend_score + change_score)
-        if probability > 100:
-            probability = 100
+        probability = min(probability, 95)  # Ограничим максимумом
 
         if probability >= 65:
             signals.append({
@@ -61,10 +59,7 @@ async def get_top_signal():
     if not signals:
         return None
 
-    # Сортируем по вероятности
     signals.sort(key=lambda x: x["probability"], reverse=True)
-
-    # Проверяем used
     used = load_used_symbols()
     for signal in signals:
         if signal["symbol"] not in used:
