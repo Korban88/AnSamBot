@@ -32,42 +32,28 @@ def save_indicator_cache(cache):
     with open(INDICATOR_CACHE_FILE, "w") as f:
         json.dump(cache, f)
 
-async def get_price(symbol):
-    coin_id = SYMBOL_ID_MAP.get(symbol)
-    if not coin_id:
-        return None
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                data = await resp.json()
-                return data.get(coin_id, {}).get("usd")
-    except:
-        return None
-
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
         return None
-    gains = []
-    losses = []
-    for i in range(1, period + 1):
-        delta = prices[-i] - prices[-i - 1]
-        if delta >= 0:
-            gains.append(delta)
-        else:
-            losses.append(-delta)
-    avg_gain = mean(gains) if gains else 0
-    avg_loss = mean(losses) if losses else 0
+    deltas = [prices[i+1] - prices[i] for i in range(len(prices) - 1)]
+    gains = [d for d in deltas if d > 0]
+    losses = [-d for d in deltas if d < 0]
+    avg_gain = mean(gains[-period:]) if gains else 0
+    avg_loss = mean(losses[-period:]) if losses else 0
     if avg_loss == 0:
         return 100.0
     rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return round(rsi, 2)
+    return round(100 - (100 / (1 + rs)), 2)
 
-def calculate_ma(prices, period=5):
-    if len(prices) < period:
-        return None
-    return round(mean(prices[-period:]), 4)
+def calculate_volatility(prices):
+    if not prices or len(prices) < 2:
+        return 0
+    return round((max(prices) - min(prices)) / mean(prices) * 100, 2)
+
+def volume_growth(volumes):
+    if len(volumes) < 2 or volumes[-2] == 0:
+        return 0
+    return round((volumes[-1] - volumes[-2]) / volumes[-2] * 100, 2)
 
 async def get_market_data(symbol):
     coin_id = SYMBOL_ID_MAP.get(symbol)
@@ -81,21 +67,25 @@ async def get_market_data(symbol):
         if datetime.utcnow() - cached_time < timedelta(hours=1):
             return cache[symbol]["data"]
 
-    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=15&interval=daily"
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=2&interval=hourly"
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 chart = await resp.json()
                 prices = [p[1] for p in chart.get("prices", [])]
-                if not prices or len(prices) < 15:
+                volumes = [v[1] for v in chart.get("total_volumes", [])]
+                if not prices or not volumes or len(prices) < 24:
                     return None
 
-                rsi = calculate_rsi(prices)
-                ma = calculate_ma(prices)
-    except:
+                rsi = calculate_rsi(prices[-20:])
+                volat = calculate_volatility(prices[-24:])
+                vol_growth = volume_growth(volumes[-24:])  # сравнение последнего часа с предыдущим
+
+    except Exception as e:
+        print(f"Ошибка данных {symbol}: {e}")
         return None
 
-    # теперь получаем текущие данные
+    # текущие данные
     market_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
     try:
         async with aiohttp.ClientSession() as session:
@@ -105,11 +95,12 @@ async def get_market_data(symbol):
                 result = {
                     "price": m.get("current_price", {}).get("usd"),
                     "change_24h": m.get("price_change_percentage_24h"),
-                    "volume": m.get("total_volume", {}).get("usd"),
+                    "volume_24h": m.get("total_volume", {}).get("usd"),
                     "rsi": rsi,
-                    "ma": ma
+                    "volatility": volat,
+                    "volume_growth": vol_growth
                 }
-                # сохраняем в кэш
+                # кешируем
                 cache[symbol] = {
                     "timestamp": now,
                     "data": result
