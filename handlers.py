@@ -1,96 +1,61 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler, MessageHandler, filters
-from analysis import get_top_signal
+import json
+import os
+import asyncio
+
+from analysis import analyze_cryptos
 from tracking import start_tracking, stop_all_trackings
-from utils import reset_cache
-from config import OWNER_ID
+from utils import send_signal_message, reset_cache
 
-# /start
-async def start_command_handler(update: Update, context: CallbackContext):
-    inline_keyboard = [
-        [InlineKeyboardButton("📈 Получить сигнал", callback_data="get_signal")],
-        [InlineKeyboardButton("🛑 Остановить все отслеживания", callback_data="stop_tracking")]
+# === Команда /start ===
+async def start_handler_func(update: Update, context: CallbackContext):
+    keyboard = [
+        [KeyboardButton("📈 Получить сигнал")],
+        [KeyboardButton("🛑 Остановить все отслеживания")],
+        [KeyboardButton("♻️ Сбросить кеш")]
     ]
-    reply_markup_inline = InlineKeyboardMarkup(inline_keyboard)
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text("Добро пожаловать в новую жизнь, Корбан!", reply_markup=reply_markup)
 
-    reply_keyboard = [
-        [KeyboardButton("Получить сигнал")],
-        [KeyboardButton("Остановить все отслеживания")],
-        [KeyboardButton("Сбросить кеш")]
-    ]
-    reply_markup_panel = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
+start_handler = CommandHandler("start", start_handler_func)
 
-    await update.message.reply_text(
-        "Добро пожаловать в новую жизнь, Корбан!",
-        reply_markup=reply_markup_inline
-    )
-    await update.message.reply_text(
-        "Выберите действие:",
-        reply_markup=reply_markup_panel
-    )
-
-# Inline кнопки
-async def button_callback_handler(update: Update, context: CallbackContext):
+# === Inline кнопки под сообщением ===
+async def button_handler_func(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "get_signal":
-        signal = await get_top_signal()
-        if signal:
-            message = (
-                f"Монета: *{signal['symbol']}*\n"
-                f"Цена входа: *{signal['entry_price']}* $\n"
-                f"Цель +5%: *{signal['target_price']}* $\n"
-                f"Стоп-лосс: *{signal['stop_loss']}* $\n"
-                f"Изменение за 24ч: *{signal['change_24h']}%*\n"
-                f"Вероятность роста: *{signal['probability']}%*"
-            )
-            button = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
-            ])
-            await query.message.reply_text(message, reply_markup=button, parse_mode="Markdown")
-        else:
-            await query.message.reply_text("Нет подходящих сигналов. Попробуй позже.")
+    data = query.data
 
-    elif query.data == "stop_tracking":
-        stop_all_trackings()
-        await query.message.reply_text("⛔️ Отслеживание всех монет остановлено.")
+    if data.startswith("track:"):
+        symbol = data.split(":")[1]
+        await start_tracking(symbol, context.bot, query.message.chat_id)
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(f"🔔 Начал отслеживать монету: {symbol}")
 
-    elif query.data.startswith("track_"):
-        symbol = query.data.replace("track_", "")
-        await start_tracking(symbol, context)
-        await query.message.reply_text(f"🔔 Теперь отслеживаем монету *{symbol}*", parse_mode="Markdown")
+button_handler = CallbackQueryHandler(button_handler_func)
 
-# Reply кнопки
+# === Reply кнопки в панели ===
 async def message_handler(update: Update, context: CallbackContext):
-    text = update.message.text.strip().lower()
+    text = update.message.text
 
-    if "получить сигнал" in text:
-        signal = await get_top_signal()
-        if signal:
-            message = (
-                f"Монета: *{signal['symbol']}*\n"
-                f"Цена входа: *{signal['entry_price']}* $\n"
-                f"Цель +5%: *{signal['target_price']}* $\n"
-                f"Стоп-лосс: *{signal['stop_loss']}* $\n"
-                f"Изменение за 24ч: *{signal['change_24h']}%*\n"
-                f"Вероятность роста: *{signal['probability']}%*"
-            )
-            button = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
-            ])
-            await update.message.reply_text(message, reply_markup=button, parse_mode="Markdown")
-        else:
-            await update.message.reply_text("Нет подходящих сигналов. Попробуй позже.")
+    if text == "📈 Получить сигнал":
+        coins = await analyze_cryptos()
 
-    elif "остановить" in text:
-        stop_all_trackings()
-        await update.message.reply_text("⛔️ Отслеживание всех монет остановлено.")
+        if not coins:
+            await update.message.reply_text("Сейчас нет подходящих монет по фильтрам.")
+            return
 
-    elif "сбросить кеш" in text:
+        for coin in coins:
+            await send_signal_message(update.effective_chat.id, context.bot, coin)
+            await asyncio.sleep(1)
+
+    elif text == "🛑 Остановить все отслеживания":
+        await stop_all_trackings(update.effective_chat.id)
+        await update.message.reply_text("⛔️ Все отслеживания остановлены.")
+
+    elif text == "♻️ Сбросить кеш":
         reset_cache()
-        await update.message.reply_text("♻️ Кеш сброшен. Попробуй снова получить сигнал.")
+        await update.message.reply_text("🧹 Кеш успешно сброшен.")
 
-# Обработчики
-start_handler = CommandHandler("start", start_command_handler)
-button_handler = CallbackQueryHandler(button_callback_handler)
+message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler)
