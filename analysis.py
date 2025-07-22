@@ -4,11 +4,11 @@ from crypto_list import TELEGRAM_WALLET_COIN_IDS
 
 logger = logging.getLogger(__name__)
 
-EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}  # исключаем стабильные и предсказуемые монеты
+EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}  # стабильные монеты
 
 def evaluate_coin(coin):
     """
-    Оценивает перспективность монеты и возвращает оценку (score) и вероятность роста.
+    Оценивает монету и возвращает (score, вероятность роста).
     """
     rsi = coin.get("rsi", 0)
     ma7 = coin.get("ma7", 0)
@@ -20,7 +20,7 @@ def evaluate_coin(coin):
 
     score = 0
 
-    # RSI фильтр (оптимальный диапазон: 45–65)
+    # RSI: зона силы — 45–65
     if 45 <= rsi <= 65:
         score += 2
     elif 35 <= rsi < 45 or 65 < rsi <= 70:
@@ -28,7 +28,7 @@ def evaluate_coin(coin):
     else:
         score -= 1
 
-    # Цена выше MA7 — восходящий тренд
+    # MA7: восходящий тренд
     if price > ma7:
         score += 2
     else:
@@ -40,15 +40,15 @@ def evaluate_coin(coin):
     elif change_24h > 2:
         score += 1
     elif change_24h < -3:
-        score -= 3  # падение — исключаем
+        score -= 3
 
-    # Простой расчёт вероятности роста
+    # Итоговая вероятность
     probability = max(0, min(90, 60 + score * 5))
     return score, probability
 
 async def analyze_cryptos():
     """
-    Анализирует монеты из Telegram Wallet и возвращает топ-3 по вероятности роста.
+    Возвращает топ-3 монеты по вероятности роста из списка Telegram Wallet.
     """
     coin_ids = TELEGRAM_WALLET_COIN_IDS if isinstance(TELEGRAM_WALLET_COIN_IDS, list) else list(TELEGRAM_WALLET_COIN_IDS.keys())
     all_data = await get_all_coin_data(coin_ids)
@@ -61,31 +61,24 @@ async def analyze_cryptos():
             continue
 
         score, probability = evaluate_coin(coin)
+
         if score < 2 or probability < 65:
+            logger.info(f"❌ Монета отклонена: {coin['symbol']}, score={score}, prob={probability}")
             continue
 
         coin["score"] = score
         coin["probability"] = probability
         candidates.append(coin)
 
-    # Сортируем по убыванию вероятности
     candidates.sort(key=lambda x: x["probability"], reverse=True)
 
-    # Формируем финальный список из топ-3 монет
     top_signals = []
     for coin in candidates[:3]:
-        price = coin["current_price"]
-        target_price = round(price * 1.05, 4)
-        stop_loss = round(price * 0.97, 4)
-        change_24h = coin.get("price_change_percentage_24h", 0)
-
         signal = {
             "id": coin["id"],
             "symbol": coin["symbol"],
-            "entry": price,
-            "target": target_price,
-            "stop_loss": stop_loss,
-            "change_24h": round(change_24h, 2),
+            "current_price": coin["current_price"],
+            "price_change_percentage_24h": round(coin.get("price_change_percentage_24h", 0), 2),
             "probability": coin["probability"]
         }
         top_signals.append(signal)
