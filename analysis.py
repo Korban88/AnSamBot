@@ -87,7 +87,7 @@ async def analyze_cryptos():
     sorted_coins = sorted(candidates, key=lambda x: x["probability"], reverse=True)
     return sorted_coins[:3]
 
-    def get_top_signal():
+def get_top_signal():
     """
     Синхронная обёртка для получения лучшего сигнала (монеты с максимальной вероятностью роста)
     """
