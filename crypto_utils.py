@@ -79,8 +79,7 @@ async def get_market_data(symbol):
 
                 rsi = calculate_rsi(prices[-20:])
                 volat = calculate_volatility(prices[-24:])
-                vol_growth = volume_growth(volumes[-24:])  # сравнение последнего часа с предыдущим
-
+                vol_growth = volume_growth(volumes[-24:])
     except Exception as e:
         print(f"Ошибка данных {symbol}: {e}")
         return None
@@ -107,5 +106,19 @@ async def get_market_data(symbol):
                 }
                 save_indicator_cache(cache)
                 return result
+    except:
+        return None
+
+# 🔁 Нужно для tracking.py
+async def get_price(symbol):
+    coin_id = SYMBOL_ID_MAP.get(symbol)
+    if not coin_id:
+        return None
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                return data.get(coin_id, {}).get("usd")
     except:
         return None
