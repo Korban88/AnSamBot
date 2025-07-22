@@ -2,7 +2,7 @@ import asyncio
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from handlers import start_handler, button_handler, message_handler
 from utils import schedule_daily_signal_check
-from config import TELEGRAM_BOT_TOKEN
+from config import TELEGRAM_BOT_TOKEN, OWNER_ID
 
 async def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -11,9 +11,9 @@ async def main():
     app.add_handler(button_handler)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
 
-    schedule_daily_signal_check(app)
+    schedule_daily_signal_check(app, OWNER_ID)
 
-    print("Бот запущен.")
+    print("🚀 Бот запущен.")
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
