@@ -35,6 +35,50 @@ def simulate_ma7(current_price):
     variation = random.uniform(-0.03, 0.03)
     return round(current_price * (1 - variation), 4)
 
+def calculate_ma7(prices):
+    """Реальный MA7 — скользящее среднее за 7 дней"""
+    if len(prices) < 7:
+        return None
+    return round(sum(prices[-7:]) / 7, 4)
+
+def calculate_rsi(prices):
+    """Реальный RSI на основе 7 дней"""
+    if len(prices) < 8:
+        return None
+
+    gains = []
+    losses = []
+    for i in range(1, 8):
+        delta = prices[i] - prices[i - 1]
+        if delta > 0:
+            gains.append(delta)
+        else:
+            losses.append(abs(delta))
+
+    avg_gain = sum(gains) / 7 if gains else 0.0001
+    avg_loss = sum(losses) / 7 if losses else 0.0001
+
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return round(rsi, 2)
+
+async def fetch_historical_prices(coin_id, days=8):
+    """
+    Получает исторические цены монеты за N дней (для RSI и MA7)
+    """
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+    params = {
+        "vs_currency": "usd",
+        "days": days,
+        "interval": "daily"
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params) as response:
+            if response.status == 200:
+                data = await response.json()
+                return [price[1] for price in data.get("prices", [])]
+            return []
+
 async def fetch_all_coin_data(coin_ids):
     url = f"https://api.coingecko.com/api/v3/coins/markets"
     params = {
@@ -51,7 +95,7 @@ async def fetch_all_coin_data(coin_ids):
 
 async def get_all_coin_data(coin_ids):
     """
-    Получает данные по монетам и дополняет их RSI и MA7 (с кешем).
+    Получает данные по монетам и дополняет их RSI и MA7 (с кешем и fallback-логикой)
     """
     raw_data = await fetch_all_coin_data(coin_ids)
     result = []
@@ -61,7 +105,7 @@ async def get_all_coin_data(coin_ids):
         current_price = coin.get("current_price")
         change_24h = coin.get("price_change_percentage_24h", 0)
 
-        # Кеш по времени
+        # Проверка кеша
         cached = INDICATOR_CACHE.get(coin_id, {})
         timestamp = cached.get("timestamp")
         now = datetime.utcnow()
@@ -71,8 +115,9 @@ async def get_all_coin_data(coin_ids):
             coin["rsi"] = cached["rsi"]
             coin["ma7"] = cached["ma7"]
         else:
-            rsi = simulate_rsi(change_24h)
-            ma7 = simulate_ma7(current_price)
+            prices = await fetch_historical_prices(coin_id)
+            rsi = calculate_rsi(prices) or simulate_rsi(change_24h)
+            ma7 = calculate_ma7(prices) or simulate_ma7(current_price)
             coin["rsi"] = rsi
             coin["ma7"] = ma7
             INDICATOR_CACHE[coin_id] = {
