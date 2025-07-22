@@ -58,4 +58,4 @@ async def message_handler(update: Update, context: CallbackContext):
         reset_cache()
         await update.message.reply_text("🧹 Кеш успешно сброшен.")
 
-message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler)
+message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), your_reply_function)
