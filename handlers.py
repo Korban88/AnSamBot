@@ -2,7 +2,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from utils import send_signal_message, reset_cache
 from tracking import start_tracking, stop_all_trackings
-from config import tracked_symbols
 
 # /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -19,12 +18,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data.startswith("track_"):
         symbol = query.data.replace("track_", "")
-        if symbol in tracked_symbols:
-            await start_tracking(context, query.message.chat_id, symbol)
-            await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text(f"⏱ Отслеживание {symbol} запущено.")
-        else:
-            await query.message.reply_text("Монета не поддерживается для отслеживания.")
+        await start_tracking(context, query.message.chat_id, symbol)
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(f"⏱ Отслеживание {symbol} запущено.")
     elif query.data == "stop_all":
         await stop_all_trackings()
         await query.message.reply_text("🛑 Все отслеживания остановлены.")
