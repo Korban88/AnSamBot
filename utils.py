@@ -46,6 +46,10 @@ async def cache_top_signals():
     with open(SIGNAL_CACHE_FILE, "w") as f:
         json.dump(top_signals, f)
 
+def fnum(x):
+    """Округление до 2-3 знаков после точки, без лишних нулей"""
+    return f"{x:.3f}".rstrip('0').rstrip('.') if '.' in f"{x:.3f}" else f"{x:.3f}"
+
 async def send_signal_message(user_id, context):
     await cache_top_signals()
     signal = get_next_top_signal()
@@ -57,10 +61,10 @@ async def send_signal_message(user_id, context):
 
         message = (
             f"*🚀 Сигнал на покупку: {signal['symbol']}*\n\n"
-            f"*Цена входа:* ${price}\n"
-            f"*Цель:* +5% → ${target_price}\n"
-            f"*Стоп-лосс:* -3% → ${stop_price}\n"
-            f"*Изменение за 24ч:* {signal['price_change_percentage_24h']}%\n"
+            f"*Цена входа:* ${fnum(price)}\n"
+            f"*Цель:* +5% → ${fnum(target_price)}\n"
+            f"*Стоп-лосс:* -3% → ${fnum(stop_price)}\n"
+            f"*Изменение за 24ч:* {fnum(signal['price_change_percentage_24h'])}%\n"
             f"*Вероятность роста:* {signal['probability']}%\n"
         )
 
