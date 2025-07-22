@@ -1,4 +1,5 @@
-# Список монет из Telegram Wallet (53 монеты), используемых для анализа сигналов
+# Список монет из Telegram Wallet, подтверждённый по скринам (53 монеты)
+
 MONITORED_SYMBOLS = [
     "TON", "BTC", "ETH", "BNB", "TRX", "USDT", "USDC", "DAI",
     "BUSD", "WBTC", "LTC", "MATIC", "DOGE", "SHIB", "AVAX",
