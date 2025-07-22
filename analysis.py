@@ -17,10 +17,15 @@ def save_used_symbols(symbols):
 
 async def get_top_signal():
     signals = []
+    used = load_used_symbols()
 
     for symbol in MONITORED_SYMBOLS:
+        if symbol in used:
+            continue
+
         data = await get_market_data(symbol)
         if not data:
+            print(f"⚠️ {symbol}: нет данных с API")
             continue
 
         rsi = data.get("rsi")
@@ -29,22 +34,30 @@ async def get_top_signal():
         price = data.get("price")
 
         if not all([rsi, ma, change, price]):
+            print(f"⚠️ {symbol}: отсутствуют ключевые метрики")
             continue
 
+        # Строгий фильтр — отсеиваем сомнительные монеты
         if change < -5:
+            print(f"⛔ {symbol} исключён: падение {change:.2f}%")
             continue
         if rsi > 75 or rsi < 25:
+            print(f"⛔ {symbol} исключён: RSI={rsi}")
             continue
         if ma > price * 1.05:
+            print(f"⛔ {symbol} исключён: MA выше цены (MA={ma}, P={price})")
             continue
 
-        # Расчёт вероятности (реалистично)
-        rsi_score = max(0, 20 - abs(rsi - 50))
-        trend_score = max(0, 30 - abs(ma - price) / price * 100)
-        change_score = max(0, 30 - abs(change) * 1.5)
+        # Улучшенная формула вероятности
+        base = 40
+        rsi_score = max(0, 15 - abs(rsi - 50))  # до 15
+        trend_score = max(0, 25 - abs(ma - price) / price * 100)  # до 25
+        change_score = max(0, 20 - abs(change) * 2)  # до 20
 
-        probability = round(50 + rsi_score + trend_score + change_score)
-        probability = min(probability, 95)  # Ограничим максимумом
+        probability = round(base + rsi_score + trend_score + change_score)
+        probability = min(probability, 90)
+
+        print(f"✅ {symbol} прошёл отбор: RSI={rsi}, MA={ma}, P={price}, Δ24h={change}, → {probability}%")
 
         if probability >= 65:
             signals.append({
@@ -57,14 +70,19 @@ async def get_top_signal():
             })
 
     if not signals:
+        print("❌ Нет подходящих монет среди всех доступных")
         return None
 
     signals.sort(key=lambda x: x["probability"], reverse=True)
-    used = load_used_symbols()
+
+    # Первая подходящая монета, не использованная ранее
     for signal in signals:
-        if signal["symbol"] not in used:
-            used.append(signal["symbol"])
+        symbol = signal["symbol"]
+        if symbol not in used:
+            used.append(symbol)
             save_used_symbols(used)
+            print(f"📤 Сигнал выбран: {symbol} с вероятностью {signal['probability']}%")
             return signal
 
+    print("🔁 Все топ монеты уже использовались")
     return None
