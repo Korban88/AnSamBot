@@ -1,96 +1,84 @@
-import asyncio
-from crypto_utils import get_all_coin_data
+import math
+import json
 from crypto_list import TELEGRAM_WALLET_COIN_IDS
+from crypto_utils import get_all_coin_data
 
-# Настройки фильтрации
-MIN_VOLUME_USD = 1000000
-MAX_24H_DROP = -3.0
-MIN_RSI = 35
-MAX_RSI = 70
+REJECTION_LOG_FILE = "rejected_log.json"
 
-def calculate_growth_score(coin):
+def log_rejection(symbol, reason):
+    try:
+        with open(REJECTION_LOG_FILE, "r") as f:
+            log = json.load(f)
+    except FileNotFoundError:
+        log = {}
+
+    if symbol not in log:
+        log[symbol] = []
+
+    log[symbol].append(reason)
+
+    with open(REJECTION_LOG_FILE, "w") as f:
+        json.dump(log, f, indent=2)
+
+def score_coin(coin):
     """
-    Расчёт скоринга перспективности монеты на основе ряда метрик:
-    - RSI
-    - Изменение цены за 24 часа
-    - Рост объёма
-    - Волатильность (разница high - low)
+    Оценка монеты: чем выше, тем больше вероятность роста.
     """
+    score = 0
+
+    # Обрабатываем только подходящие монеты
+    if coin.get("price_change_percentage_24h", 0) < -3:
+        log_rejection(coin["symbol"], "Падение за 24ч > 3%")
+        return 0
+
+    if coin.get("rsi") is None:
+        log_rejection(coin["symbol"], "Нет RSI")
+        return 0
+
+    if coin["rsi"] < 45:
+        log_rejection(coin["symbol"], f"RSI < 45 ({coin['rsi']})")
+        return 0
+
+    # if coin.get("ma7") and coin["current_price"] < coin["ma7"]:
+    #     log_rejection(coin["symbol"], "Цена ниже MA7")
+    #     return 0
+
+    # Чем выше рост за 24ч, тем лучше (но не слишком высокий)
     change_24h = coin.get("price_change_percentage_24h", 0)
-    volume = coin.get("total_volume", 0)
-    rsi = coin.get("rsi", 0)
-    ma_7 = coin.get("ma7", 0)
-    current_price = coin.get("current_price", 0)
-    high_24h = coin.get("high_24h", 0)
-    low_24h = coin.get("low_24h", 0)
+    if 0 < change_24h < 5:
+        score += change_24h
 
-    if not current_price or not high_24h or not low_24h:
-        return 0
+    # RSI 50–70 — зона возможного роста
+    if 50 <= coin["rsi"] <= 70:
+        score += 10
+    elif 45 <= coin["rsi"] < 50:
+        score += 5
 
-    volatility_score = (high_24h - low_24h) / current_price
-    rsi_score = 1 - abs(50 - rsi) / 50  # лучше, когда ближе к 50
-    change_score = max(0, change_24h / 5)  # лучше, когда рост
-    volume_score = min(volume / 1e7, 1)  # выше объем — выше шанс всплеска
-    trend_score = 1 if current_price > ma_7 else 0
+    # Учитываем MA7, если есть
+    if coin.get("ma7"):
+        if coin["current_price"] > coin["ma7"]:
+            score += 5
+        else:
+            score -= 3
 
-    score = (volatility_score * 0.3 +
-             rsi_score * 0.25 +
-             change_score * 0.2 +
-             volume_score * 0.15 +
-             trend_score * 0.1)
+    return round(score, 2)
 
-    return round(score, 4)
-
-def calculate_growth_probability(score):
+def estimate_growth_probability(score):
     """
-    Преобразование скоринга в вероятность роста
+    Грубое приближение вероятности роста на основе балла
     """
-    if score > 0.75:
-        return 90 + (score - 0.75) * 100  # до 100%
-    elif score > 0.6:
-        return 75 + (score - 0.6) * 100
-    elif score > 0.5:
-        return 65 + (score - 0.5) * 100
-    else:
-        return 0
+    return min(95, max(40, int(60 + math.log1p(score) * 10)))
 
 async def analyze_cryptos():
-    """
-    Основная функция анализа монет и возврата топ-3 с наибольшей вероятностью роста
-    """
-    coins_data = await get_all_coin_data(TELEGRAM_WALLET_COIN_IDS)
+    coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
+    data = await get_all_coin_data(coin_ids)
 
-    candidates = []
-    for coin in coins_data:
-        if not coin:
-            continue
+    results = []
+    for coin in data:
+        coin["score"] = score_coin(coin)
+        if coin["score"] > 0:
+            coin["probability"] = estimate_growth_probability(coin["score"])
+            results.append(coin)
 
-        change_24h = coin.get("price_change_percentage_24h", 0)
-        volume = coin.get("total_volume", 0)
-        rsi = coin.get("rsi", 0)
-
-        if change_24h < MAX_24H_DROP:
-            continue
-        if volume < MIN_VOLUME_USD:
-            continue
-        if rsi < MIN_RSI or rsi > MAX_RSI:
-            continue
-
-        score = calculate_growth_score(coin)
-        probability = calculate_growth_probability(score)
-
-        if probability >= 65:
-            coin["score"] = score
-            coin["probability"] = round(probability)
-            candidates.append(coin)
-
-    sorted_coins = sorted(candidates, key=lambda x: x["probability"], reverse=True)
-    return sorted_coins[:3]
-
-def get_top_signal():
-    """
-    Синхронная обёртка для получения лучшего сигнала (монеты с максимальной вероятностью роста)
-    """
-    loop = asyncio.get_event_loop()
-    top_signals = loop.run_until_complete(analyze_cryptos())
-    return top_signals[0] if top_signals else None
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results[:3]
