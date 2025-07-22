@@ -1,77 +1,107 @@
 import aiohttp
 import json
 import os
+import random
 from datetime import datetime, timedelta
 
-CACHE_FILE = "indicators_cache.json"
-COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/markets"
-VS_CURRENCY = "usd"
+CACHE_PATH = "indicators_cache.json"
 
-def load_cache():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as f:
-            return json.load(f)
-    return {}
+# Загрузка или инициализация кеша
+if os.path.exists(CACHE_PATH):
+    with open(CACHE_PATH, "r") as f:
+        INDICATOR_CACHE = json.load(f)
+else:
+    INDICATOR_CACHE = {}
 
-def save_cache(cache):
-    with open(CACHE_FILE, "w") as f:
-        json.dump(cache, f)
+def save_cache():
+    with open(CACHE_PATH, "w") as f:
+        json.dump(INDICATOR_CACHE, f)
 
-async def fetch_market_data(coin_ids):
-    url = COINGECKO_URL
+def simulate_rsi(price_change):
+    """Грубая симуляция RSI на основе 24h изменений"""
+    if price_change >= 10:
+        return random.randint(65, 75)
+    elif price_change >= 5:
+        return random.randint(55, 65)
+    elif price_change >= 0:
+        return random.randint(45, 55)
+    elif price_change >= -3:
+        return random.randint(35, 45)
+    else:
+        return random.randint(25, 35)
+
+def simulate_ma7(current_price):
+    """Симулируем MA7 немного ниже текущей цены"""
+    variation = random.uniform(-0.03, 0.03)
+    return round(current_price * (1 - variation), 4)
+
+async def fetch_all_coin_data(coin_ids):
+    url = f"https://api.coingecko.com/api/v3/coins/markets"
     params = {
-        "vs_currency": VS_CURRENCY,
+        "vs_currency": "usd",
         "ids": ",".join(coin_ids),
-        "price_change_percentage": "24h",
+        "price_change_percentage": "24h"
     }
-
     async with aiohttp.ClientSession() as session:
         async with session.get(url, params=params) as response:
             if response.status == 200:
                 return await response.json()
-            return []
-
-async def fetch_rsi_and_ma(coin_id):
-    # В реальном варианте сюда можно подключить анализ с TradingView или по API биржи
-    # Здесь мы эмулируем реалистичные данные
-    import random
-    return {
-        "rsi": round(random.uniform(40, 65), 2),
-        "ma7": round(random.uniform(0.95, 1.05), 4)
-    }
+            else:
+                return []
 
 async def get_all_coin_data(coin_ids):
-    cache = load_cache()
-    now = datetime.utcnow()
+    """
+    Получает данные по монетам и дополняет их RSI и MA7 (с кешем).
+    """
+    raw_data = await fetch_all_coin_data(coin_ids)
     result = []
 
-    raw_data = await fetch_market_data(coin_ids)
-
     for coin in raw_data:
-        coin_id = coin.get("id")
-        if not coin_id:
-            continue
+        coin_id = coin["id"]
+        current_price = coin.get("current_price")
+        change_24h = coin.get("price_change_percentage_24h", 0)
 
-        cached = cache.get(coin_id, {})
-        cached_time = datetime.strptime(cached.get("timestamp", "1970-01-01"), "%Y-%m-%dT%H:%M:%S")
+        # Кеш по времени
+        cached = INDICATOR_CACHE.get(coin_id, {})
+        timestamp = cached.get("timestamp")
+        now = datetime.utcnow()
+        is_fresh = timestamp and (now - datetime.fromisoformat(timestamp)) < timedelta(hours=1)
 
-        if (now - cached_time) < timedelta(minutes=30):
-            rsi = cached.get("rsi")
-            ma7 = cached.get("ma7")
+        if is_fresh:
+            coin["rsi"] = cached["rsi"]
+            coin["ma7"] = cached["ma7"]
         else:
-            indicators = await fetch_rsi_and_ma(coin_id)
-            rsi = indicators["rsi"]
-            ma7 = coin["current_price"] * indicators["ma7"]  # Эмуляция MA7 как отклонения от текущей цены
-
-            cache[coin_id] = {
+            rsi = simulate_rsi(change_24h)
+            ma7 = simulate_ma7(current_price)
+            coin["rsi"] = rsi
+            coin["ma7"] = ma7
+            INDICATOR_CACHE[coin_id] = {
                 "rsi": rsi,
                 "ma7": ma7,
-                "timestamp": now.strftime("%Y-%m-%dT%H:%M:%S")
+                "timestamp": now.isoformat()
             }
 
-        coin["rsi"] = rsi
-        coin["ma7"] = ma7
         result.append(coin)
 
-    save_cache(cache)
+    save_cache()
     return result
+
+async def get_price(symbol):
+    """
+    Получает текущую цену монеты по её символу.
+    """
+    from crypto_list import TELEGRAM_WALLET_COIN_IDS
+
+    coin_id = None
+    for id_, sym in TELEGRAM_WALLET_COIN_IDS.items():
+        if sym.lower() == symbol.lower():
+            coin_id = id_
+            break
+
+    if not coin_id:
+        return None
+
+    coins = await get_all_coin_data([coin_id])
+    if coins and coins[0]:
+        return coins[0].get("current_price")
+    return None
