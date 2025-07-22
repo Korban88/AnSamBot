@@ -3,7 +3,6 @@ import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from apscheduler.schedulers.background import BackgroundScheduler
 from analysis import analyze_cryptos
-from config import TELEGRAM_BOT_TOKEN
 from telegram.ext import Application
 
 USED_SYMBOLS_FILE = "used_symbols.json"
@@ -47,7 +46,7 @@ async def cache_top_signals():
     with open(SIGNAL_CACHE_FILE, "w") as f:
         json.dump(top_signals, f)
 
-async def send_signal_message(app: Application):
+async def send_signal_message(user_id, context):
     await cache_top_signals()
     signal = get_next_top_signal()
 
@@ -65,16 +64,15 @@ async def send_signal_message(app: Application):
             [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
         ])
 
-        from config import OWNER_ID
-        await app.bot.send_message(chat_id=OWNER_ID, text=message, reply_markup=keyboard, parse_mode="Markdown")
+        await context.bot.send_message(chat_id=user_id, text=message, reply_markup=keyboard, parse_mode="Markdown")
     else:
-        await app.bot.send_message(chat_id=OWNER_ID, text="Нет подходящих сигналов на текущий момент.")
+        await context.bot.send_message(chat_id=user_id, text="Нет подходящих сигналов на текущий момент.")
 
 def schedule_daily_signal_check(app, owner_id):
     """
     Запускает планировщик отправки сигнала каждый день в 8:00 по МСК
     """
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
-    scheduler.add_job(lambda: app.create_task(send_signal_message(app)),
+    scheduler.add_job(lambda: app.create_task(send_signal_message(owner_id, app)),
                       trigger='cron', hour=8, minute=0, id='daily_signal')
     scheduler.start()
