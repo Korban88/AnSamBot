@@ -1,50 +1,90 @@
 import asyncio
-from crypto_utils import get_price
+from datetime import datetime, timedelta
+from telegram.ext import ContextTypes
+from crypto_utils import get_current_price
+import json
+import os
 
-TRACKING = {}
+TRACKING_FILE = "tracking_data.json"
 
-async def start_tracking(symbol, context):
-    if symbol in TRACKING:
-        return
+class CoinTracker:
+    tracked = {}
 
-    async def track():
-        start_price = await get_price(symbol)
-        if not start_price:
-            return
-        start_time = asyncio.get_event_loop().time()
+    @staticmethod
+    def track(user_id, symbol, context: ContextTypes.DEFAULT_TYPE):
+        now = datetime.utcnow()
+        CoinTracker.tracked[user_id] = {
+            "symbol": symbol,
+            "start_time": now.isoformat(),
+            "initial_price": None
+        }
+        CoinTracker.save_tracking_data()
+        asyncio.create_task(CoinTracker.monitor(user_id, symbol, context))
+
+    @staticmethod
+    async def monitor(user_id, symbol, context: ContextTypes.DEFAULT_TYPE):
+        await asyncio.sleep(10)  # чтобы не вызывалось мгновенно
+        start_time = datetime.utcnow()
+
+        # Получаем стартовую цену
+        initial_price = await get_current_price(symbol)
+        CoinTracker.tracked[user_id]["initial_price"] = initial_price
+        CoinTracker.save_tracking_data()
 
         while True:
-            await asyncio.sleep(600)
-            current_price = await get_price(symbol)
-            if not current_price:
+            await asyncio.sleep(600)  # каждые 10 минут
+
+            current_price = await get_current_price(symbol)
+            if current_price is None or initial_price is None:
                 continue
 
-            growth = (current_price - start_price) / start_price * 100
-            if growth >= 5:
-                await context.bot.send_message(
-                    chat_id=context._chat_id,
-                    text=f"✅ {symbol} вырос на +5% — {round(current_price, 4)} $"
-                )
-                break
-            elif growth >= 3.5:
-                await context.bot.send_message(
-                    chat_id=context._chat_id,
-                    text=f"📈 {symbol} уже +3.5% — {round(current_price, 4)} $"
-                )
+            percent_change = ((current_price - initial_price) / initial_price) * 100
 
-            if asyncio.get_event_loop().time() - start_time > 43200:
-                change = round((current_price - start_price) / start_price * 100, 2)
+            if percent_change >= 5:
                 await context.bot.send_message(
-                    chat_id=context._chat_id,
-                    text=f"⏰ {symbol} не вырос за 12ч. Динамика: {change}%"
+                    chat_id=user_id,
+                    text=f"🚀 {symbol.upper()} выросла на +5%!\nТекущая цена: ${current_price:.4f}"
                 )
+                CoinTracker.tracked.pop(user_id, None)
+                CoinTracker.save_tracking_data()
                 break
 
-        del TRACKING[symbol]
+            elif percent_change >= 3.5:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"🔔 {symbol.upper()} приближается к цели (+3.5%). Текущая цена: ${current_price:.4f}"
+                )
 
-    TRACKING[symbol] = asyncio.create_task(track())
+            # проверка 12 часов
+            elapsed = datetime.utcnow() - start_time
+            if elapsed >= timedelta(hours=12):
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"⚠️ С момента отслеживания прошло 12 часов.\nИзменение цены {symbol.upper()}: {percent_change:.2f}%"
+                )
+                CoinTracker.tracked.pop(user_id, None)
+                CoinTracker.save_tracking_data()
+                break
 
-def stop_all_trackings():
-    for task in TRACKING.values():
-        task.cancel()
-    TRACKING.clear()
+    @staticmethod
+    def clear_all():
+        CoinTracker.tracked.clear()
+        CoinTracker.save_tracking_data()
+
+    @staticmethod
+    def save_tracking_data():
+        with open(TRACKING_FILE, "w") as f:
+            json.dump(CoinTracker.tracked, f)
+
+    @staticmethod
+    def load_tracking_data():
+        if os.path.exists(TRACKING_FILE):
+            with open(TRACKING_FILE, "r") as f:
+                CoinTracker.tracked = json.load(f)
+
+    @staticmethod
+    def run(context: ContextTypes.DEFAULT_TYPE):
+        CoinTracker.load_tracking_data()
+        for user_id, data in CoinTracker.tracked.items():
+            symbol = data["symbol"]
+            asyncio.create_task(CoinTracker.monitor(user_id, symbol, context))
