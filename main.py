@@ -12,7 +12,7 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))  # reply кнопки
 
     # Запланировать ежедневную отправку сигнала
-    schedule_daily_signal_check(app, OWNER_ID)
+    schedule_daily_signal_check(app)
 
     print("Бот запущен.")
     await app.run_polling()
