@@ -1,7 +1,5 @@
 import asyncio
 from crypto_utils import get_price
-from telegram import Bot
-import time
 
 TRACKING = {}
 
@@ -13,7 +11,7 @@ async def start_tracking(symbol, context):
         start_price = await get_price(symbol)
         if not start_price:
             return
-        start_time = time.time()
+        start_time = asyncio.get_event_loop().time()
 
         while True:
             await asyncio.sleep(600)
@@ -24,20 +22,20 @@ async def start_tracking(symbol, context):
             growth = (current_price - start_price) / start_price * 100
             if growth >= 5:
                 await context.bot.send_message(
-                    chat_id=347552741,
-                    text=f"✅ {symbol} вырос на +5% — {round(current_price, 4)}"
+                    chat_id=context._chat_id,
+                    text=f"✅ {symbol} вырос на +5% — {round(current_price, 4)} $"
                 )
                 break
             elif growth >= 3.5:
                 await context.bot.send_message(
-                    chat_id=347552741,
-                    text=f"📈 {symbol} уже +3.5% — {round(current_price, 4)}"
+                    chat_id=context._chat_id,
+                    text=f"📈 {symbol} уже +3.5% — {round(current_price, 4)} $"
                 )
 
-            if time.time() - start_time > 43200:
+            if asyncio.get_event_loop().time() - start_time > 43200:
                 change = round((current_price - start_price) / start_price * 100, 2)
                 await context.bot.send_message(
-                    chat_id=347552741,
+                    chat_id=context._chat_id,
                     text=f"⏰ {symbol} не вырос за 12ч. Динамика: {change}%"
                 )
                 break
