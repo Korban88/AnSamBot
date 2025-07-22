@@ -31,7 +31,7 @@ async def get_top_signal():
         if not all([rsi, ma, change, price]):
             continue
 
-        if change < -3 or rsi > 70 or ma > price:
+        if change is None or price is None:
             continue
 
         # Улучшенная формула вероятности
