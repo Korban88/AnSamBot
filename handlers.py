@@ -5,7 +5,7 @@ from tracking import start_tracking, stop_all_trackings
 from utils import reset_cache
 from config import OWNER_ID
 
-# Команда /start
+# /start
 async def start_command_handler(update: Update, context: CallbackContext):
     inline_keyboard = [
         [InlineKeyboardButton("📈 Получить сигнал", callback_data="get_signal")],
@@ -29,7 +29,7 @@ async def start_command_handler(update: Update, context: CallbackContext):
         reply_markup=reply_markup_panel
     )
 
-# Обработка inline-кнопок под сообщением
+# Inline кнопки
 async def button_callback_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
@@ -46,7 +46,7 @@ async def button_callback_handler(update: Update, context: CallbackContext):
                 f"Вероятность роста: *{signal['probability']}%*"
             )
             button = InlineKeyboardMarkup([
-                [InlineKeyboardButton("👁 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
+                [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
             ])
             await query.message.reply_text(message, reply_markup=button, parse_mode="Markdown")
         else:
@@ -58,10 +58,10 @@ async def button_callback_handler(update: Update, context: CallbackContext):
 
     elif query.data.startswith("track_"):
         symbol = query.data.replace("track_", "")
-        start_tracking(symbol)
+        await start_tracking(symbol, context)
         await query.message.reply_text(f"🔔 Теперь отслеживаем монету *{symbol}*", parse_mode="Markdown")
 
-# Обработка reply-кнопок в панели
+# Reply кнопки
 async def message_handler(update: Update, context: CallbackContext):
     text = update.message.text.strip().lower()
 
@@ -77,7 +77,7 @@ async def message_handler(update: Update, context: CallbackContext):
                 f"Вероятность роста: *{signal['probability']}%*"
             )
             button = InlineKeyboardMarkup([
-                [InlineKeyboardButton("👁 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
+                [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
             ])
             await update.message.reply_text(message, reply_markup=button, parse_mode="Markdown")
         else:
@@ -91,6 +91,6 @@ async def message_handler(update: Update, context: CallbackContext):
         reset_cache()
         await update.message.reply_text("♻️ Кеш сброшен. Попробуй снова получить сигнал.")
 
-# Объявление обработчиков
+# Обработчики
 start_handler = CommandHandler("start", start_command_handler)
 button_handler = CallbackQueryHandler(button_callback_handler)
