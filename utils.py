@@ -54,7 +54,7 @@ async def ensure_top_signals_available():
         top_signals = await analyze_cryptos()
         if not top_signals:
             print("⛔ Строгий фильтр не дал результатов — fallback-анализ...")
-            top_signals = await analyze_cryptos()
+            top_signals = await analyze_cryptos(fallback=True)
             for s in top_signals:
                 s["fallback"] = True
         else:
@@ -73,7 +73,7 @@ async def refresh_signal_cache_job(app: Application):
         top_signals = await analyze_cryptos()
         if not top_signals:
             print("⛔ Fallback-анализ при автообновлении...")
-            top_signals = await analyze_cryptos()
+            top_signals = await analyze_cryptos(fallback=True)
             for s in top_signals:
                 s["fallback"] = True
         else:
@@ -90,7 +90,24 @@ def fnum(x):
 
 async def send_signal_message(user_id, context):
     await ensure_top_signals_available()
+
     signal = get_next_top_signal()
+
+    # 👉 если сигналов не осталось, заново анализируем
+    if not signal:
+        print("🔄 Повторный анализ: нет новых сигналов в кеше.")
+        top_signals = await analyze_cryptos()
+        if not top_signals:
+            print("❗ Строгий фильтр не дал результатов — fallback-анализ...")
+            top_signals = await analyze_cryptos(fallback=True)
+            for s in top_signals:
+                s["fallback"] = True
+        else:
+            for s in top_signals:
+                s["fallback"] = False
+        with open(SIGNAL_CACHE_FILE, "w") as f:
+            json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
+        signal = get_next_top_signal()
 
     if signal:
         price = float(signal.get("current_price", 0))
