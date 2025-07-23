@@ -4,81 +4,29 @@ from crypto_list import TELEGRAM_WALLET_COIN_IDS
 
 logger = logging.getLogger(__name__)
 
-EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}  # стабильные монеты
-ANALYSIS_LOG = []  # лог анализа для /debug_analysis
+EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
+ANALYSIS_LOG = []
 
-def evaluate_coin(coin, fallback=False):
+def evaluate_coin(coin):
     rsi = coin.get("rsi", 0)
     ma7 = coin.get("ma7", 0)
     price = coin.get("current_price", 0)
     change_24h = coin.get("price_change_percentage_24h", 0)
     symbol = coin.get("symbol", "?").upper()
 
-    if not rsi or not ma7 or not price:
-        log = f"❌ {symbol}: недостаточно данных (RSI={rsi}, MA7={ma7}, Price={price})"
-        ANALYSIS_LOG.append(log)
-        logger.info(log)
-        return -100, 0
-
-    if change_24h < -7:
-        log = f"❌ {symbol}: падение {change_24h:.2f}% — исключено"
-        ANALYSIS_LOG.append(log)
-        logger.info(log)
-        return -100, 0
-
     score = 0
-    log_parts = []
-
-    # RSI
-    if 50 <= rsi <= 60:
-        score += 2
-        log_parts.append(f"✅ RSI={rsi}")
-    elif 45 <= rsi < 50 or 60 < rsi <= 70:
+    if 40 <= rsi <= 70:
         score += 1
-        log_parts.append(f"⚠️ RSI допустимый: {rsi}")
-    else:
-        log_parts.append(f"🔸 RSI вне зоны: {rsi}")
-
-    # MA7
-    if price > ma7:
-        score += 2
-        log_parts.append(f"✅ Цена выше MA7 (P={price} > MA7={ma7})")
-    elif price >= ma7 * 0.98:
+    if price >= ma7 * 0.95:
         score += 1
-        log_parts.append(f"⚠️ Цена немного ниже MA7 (P={price} < MA7={ma7})")
-    else:
-        log_parts.append(f"🔸 Цена ниже MA7 (P={price} < MA7={ma7})")
-
-    # 24h изменение
-    if change_24h > 5:
-        score += 2
-        log_parts.append(f"✅ Рост 24ч: {change_24h:.2f}%")
-    elif change_24h > 2:
+    if change_24h > -7:
         score += 1
-        log_parts.append(f"⚠️ Умеренный рост 24ч: {change_24h:.2f}%")
-    elif 0 > change_24h >= -5:
-        if rsi >= 50 and price >= ma7:
-            score += 1
-            log_parts.append(f"⚠️ Падение, но признаки разворота: {change_24h:.2f}%")
-        else:
-            log = f"❌ {symbol}: падение {change_24h:.2f}% без признаков разворота"
-            ANALYSIS_LOG.append(log)
-            logger.info(log)
-            return -100, 0
-    else:
-        log_parts.append(f"🔸 Незначительное падение: {change_24h:.2f}%")
 
-    # Расчёт вероятности
-    base_prob = 45
-    multiplier = 7
-    probability = min(90, base_prob + score * multiplier)
-    probability = round(probability, 2)
+    prob = 50 + score * 10
+    prob = round(min(prob, 90), 2)
 
-    log_line = f"🔍 {symbol}: " + "; ".join(log_parts) + f" → score={score}, prob={probability}%"
-    ANALYSIS_LOG.append(log_line)
-    logger.info(log_line)
-
-    return score, probability
+    ANALYSIS_LOG.append(f"🔍 {symbol}: score={score}, prob={prob}%")
+    return score, prob
 
 async def analyze_cryptos(fallback=False):
     global ANALYSIS_LOG
@@ -90,21 +38,13 @@ async def analyze_cryptos(fallback=False):
     candidates = []
 
     for coin in all_data:
-        coin_id = coin.get("id")
-        if not coin_id or coin_id in EXCLUDE_IDS:
+        if coin.get("id") in EXCLUDE_IDS:
             continue
-
-        score, probability = evaluate_coin(coin, fallback=fallback)
-
-        if score < 2 or probability < 60:
-            log = f"⛔ {coin['symbol'].upper()}: score={score}, prob={probability}% — отклонена"
-            ANALYSIS_LOG.append(log)
-            continue
-
-        coin["score"] = score
-        coin["probability"] = probability
-        candidates.append(coin)
-        ANALYSIS_LOG.append(f"✅ {coin['symbol'].upper()}: ДОБАВЛЕНА в топ (score={score}, prob={probability}%)")
+        score, prob = evaluate_coin(coin)
+        if score > 0:
+            coin["score"] = score
+            coin["probability"] = prob
+            candidates.append(coin)
 
     candidates.sort(key=lambda x: x["probability"], reverse=True)
 
@@ -120,6 +60,6 @@ async def analyze_cryptos(fallback=False):
         top_signals.append(signal)
 
     if not top_signals:
-        logger.info("⚠️ Нет подходящих монет по фильтрам.")
+        logger.info("⚠️ Нет подходящих монет вообще.")
 
     return top_signals
