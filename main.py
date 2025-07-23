@@ -3,7 +3,7 @@ import nest_asyncio
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 )
-from handlers import start_handler, button_handler, handle_text_message, debug_handler
+from handlers import start_handler, button_handler, handle_text_message, debug_handler, debug_analysis_handler
 from utils import schedule_daily_signal_check
 from config import TELEGRAM_BOT_TOKEN, OWNER_ID
 
@@ -13,6 +13,7 @@ async def main():
     app.add_handler(start_handler)
     app.add_handler(button_handler)
     app.add_handler(debug_handler)
+    app.add_handler(debug_analysis_handler)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text_message))
 
     schedule_daily_signal_check(app, OWNER_ID)
