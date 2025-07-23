@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from analysis import analyze_cryptos
 from utils import (
@@ -9,15 +9,18 @@ from utils import (
 )
 from tracking import CoinTracker
 
+# Панель снизу (ReplyKeyboard)
+reply_keyboard = [
+    [KeyboardButton("📈 Получить сигнал")],
+    [KeyboardButton("🔁 Сбросить кеш")],
+    [KeyboardButton("⛔ Остановить все отслеживания")],
+    [KeyboardButton("📦 Кеш сигналов")],
+    [KeyboardButton("📊 Анализ монет")]
+]
+reply_markup = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
+
+# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("📈 Получить сигнал", callback_data="get_signal")],
-        [InlineKeyboardButton("🔁 Сбросить кеш", callback_data="reset_cache")],
-        [InlineKeyboardButton("⛔ Остановить все отслеживания", callback_data="stop_tracking")],
-        [InlineKeyboardButton("📦 Кеш сигналов", callback_data="debug_cache")],
-        [InlineKeyboardButton("📊 Анализ монет", callback_data="debug_analysis")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         "Добро пожаловать в новую жизнь, Корбан!",
         reply_markup=reply_markup
@@ -27,6 +30,7 @@ start_handler = CommandHandler("start", start)
 debug_handler = CommandHandler("debug_cache", lambda update, context: debug_cache_message(update.effective_user.id, context))
 debug_analysis_handler = CommandHandler("debug_analysis", lambda update, context: debug_analysis_message(update.effective_user.id, context))
 
+# Inline кнопки под сообщением (например "🔔 Следить за монетой")
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -51,6 +55,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 button_handler = CallbackQueryHandler(button_callback)
 
+# Обработка reply-кнопок
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     user_id = update.effective_user.id
@@ -59,13 +64,13 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await send_signal_message(user_id, context)
     elif "стоп" in text or "отмена" in text:
         CoinTracker.clear_all()
-        await update.message.reply_text("⛔ Все отслеживания остановлены.")
+        await update.message.reply_text("⛔ Все отслеживания остановлены.", reply_markup=reply_markup)
     elif "сброс" in text:
         reset_cache()
-        await update.message.reply_text("✅ Кеш сброшен.")
+        await update.message.reply_text("✅ Кеш сброшен.", reply_markup=reply_markup)
     elif "анализ" in text:
         await debug_analysis_message(user_id, context)
     elif "кеш" in text:
         await debug_cache_message(user_id, context)
     else:
-        await update.message.reply_text("✉️ Напиши 'сигнал', 'стоп', 'анализ' или 'сброс', чтобы начать.")
+        await update.message.reply_text("✉️ Напиши 'сигнал', 'стоп', 'анализ' или 'сброс', чтобы начать.", reply_markup=reply_markup)
