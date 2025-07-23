@@ -9,7 +9,6 @@ from utils import (
 )
 from tracking import CoinTracker
 
-# --- /start handler ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📈 Получить сигнал", callback_data="get_signal")],
@@ -28,7 +27,6 @@ start_handler = CommandHandler("start", start)
 debug_handler = CommandHandler("debug_cache", lambda update, context: debug_cache_message(update.effective_user.id, context))
 debug_analysis_handler = CommandHandler("debug_analysis", lambda update, context: debug_analysis_message(update.effective_user.id, context))
 
-# --- inline кнопки ---
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -53,7 +51,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 button_handler = CallbackQueryHandler(button_callback)
 
-# --- reply кнопки ---
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     user_id = update.effective_user.id
