@@ -36,7 +36,6 @@ def load_cached_signals():
 def get_next_top_signal():
     signals = load_cached_signals()
     used = load_used_symbols()
-
     for signal in signals:
         if signal["symbol"] not in used:
             save_used_symbol(signal["symbol"])
@@ -48,8 +47,8 @@ async def ensure_top_signals_available():
     used = load_used_symbols()
     unused = [s for s in signals if s["symbol"] not in used]
 
-    if not unused:
-        print("⚠️ Кеш пуст или все сигналы использованы — повторный анализ...")
+    if not signals or not unused:
+        print("♻️ Обновление кеша: кеш пуст или все сигналы использованы")
         top_signals = await analyze_cryptos()
         if not top_signals:
             print("⛔ Строгий фильтр не дал результатов — fallback-анализ...")
@@ -61,6 +60,8 @@ async def ensure_top_signals_available():
                 s["fallback"] = False
         with open(SIGNAL_CACHE_FILE, "w") as f:
             json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
+        with open(USED_SYMBOLS_FILE, "w") as f:
+            json.dump([], f)
 
 async def refresh_signal_cache_job(app: Application):
     signals = load_cached_signals()
@@ -80,6 +81,8 @@ async def refresh_signal_cache_job(app: Application):
                 s["fallback"] = False
         with open(SIGNAL_CACHE_FILE, "w") as f:
             json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
+        with open(USED_SYMBOLS_FILE, "w") as f:
+            json.dump([], f)
         print("✅ Кеш сигналов обновлён.")
     else:
         print("🟢 Кеш сигналов актуален — обновление не требуется.")
