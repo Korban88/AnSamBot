@@ -29,6 +29,7 @@ def evaluate_coin(coin):
     score = 0
     log_parts = []
 
+    # RSI
     if 50 <= rsi <= 60:
         score += 2
         log_parts.append(f"✅ RSI={rsi}")
@@ -38,12 +39,14 @@ def evaluate_coin(coin):
     else:
         log_parts.append(f"🔸 RSI вне зоны ({rsi})")
 
+    # MA7
     if price > ma7:
         score += 2
         log_parts.append(f"✅ Цена выше MA7 (P={price} > MA7={ma7})")
     else:
         log_parts.append(f"🔸 Цена ниже MA7 (P={price} < MA7={ma7})")
 
+    # 24ч изменение
     if change_24h > 5:
         score += 2
         log_parts.append(f"✅ Рост 24ч: {change_24h:.2f}%")
@@ -59,9 +62,13 @@ def evaluate_coin(coin):
         else:
             log_parts.append(f"⚠️ Падение {change_24h:.2f}%, но возможен разворот")
 
-    probability = max(0, min(90, 60 + score * 5))
+    # Формула вероятности
+    base_prob = 45
+    probability = min(90, base_prob + score * 7)
+    probability = round(probability, 2)
+
     ANALYSIS_LOG.append(f"🔍 {symbol}: " + "; ".join(log_parts) + f" → score={score}, prob={probability}%")
-    return score, round(probability, 2)
+    return score, probability
 
 async def analyze_cryptos():
     global ANALYSIS_LOG
