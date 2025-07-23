@@ -73,19 +73,35 @@ async def send_signal_message(user_id, context):
             f"*Вероятность роста:* {probability}%\n"
         )
 
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")
-        ]])
-
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]])
         await context.bot.send_message(chat_id=user_id, text=message, reply_markup=keyboard, parse_mode="Markdown")
     else:
         await context.bot.send_message(chat_id=user_id, text="Нет подходящих сигналов на текущий момент.")
 
 def schedule_daily_signal_check(app, owner_id):
-    """
-    Запускает планировщик отправки сигнала каждый день в 8:00 по МСК
-    """
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
     scheduler.add_job(lambda: app.create_task(send_signal_message(owner_id, app)),
                       trigger='cron', hour=8, minute=0, id='daily_signal')
     scheduler.start()
+
+async def debug_cache_message(user_id, context):
+    cached = []
+    used = []
+
+    if os.path.exists(SIGNAL_CACHE_FILE):
+        with open(SIGNAL_CACHE_FILE, "r") as f:
+            cached = json.load(f)
+
+    if os.path.exists(USED_SYMBOLS_FILE):
+        with open(USED_SYMBOLS_FILE, "r") as f:
+            used = json.load(f)
+
+    cached_symbols = [c["symbol"] for c in cached]
+    unused = [s for s in cached_symbols if s not in used]
+
+    msg = f"*📦 Кеш сигналов:*\n"
+    msg += f"Всего в кеше: {len(cached_symbols)} монет\n"
+    msg += f"Использованы: {', '.join(used) if used else '—'}\n"
+    msg += f"Остались: {', '.join(unused) if unused else '—'}"
+
+    await context.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
