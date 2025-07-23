@@ -10,10 +10,9 @@ SIGNAL_CACHE_FILE = "top_signals_cache.json"
 MAX_SIGNAL_CACHE = 6
 
 def reset_cache():
-    if os.path.exists(SIGNAL_CACHE_FILE):
-        os.remove(SIGNAL_CACHE_FILE)
-    if os.path.exists(USED_SYMBOLS_FILE):
-        os.remove(USED_SYMBOLS_FILE)
+    for f in [SIGNAL_CACHE_FILE, USED_SYMBOLS_FILE]:
+        if os.path.exists(f):
+            os.remove(f)
 
 def load_used_symbols():
     if os.path.exists(USED_SYMBOLS_FILE):
