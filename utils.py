@@ -2,7 +2,7 @@ import json
 import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from apscheduler.schedulers.background import BackgroundScheduler
-from analysis import analyze_cryptos
+from analysis import analyze_cryptos, ANALYSIS_LOG
 from telegram.ext import Application
 
 USED_SYMBOLS_FILE = "used_symbols.json"
@@ -26,7 +26,7 @@ def save_used_symbol(symbol):
     if symbol not in used:
         used.append(symbol)
     with open(USED_SYMBOLS_FILE, "w") as f:
-        json.dump(used[-MAX_SIGNAL_CACHE:], f)  # храним только последние 6
+        json.dump(used[-MAX_SIGNAL_CACHE:], f)
 
 def get_next_top_signal():
     if not os.path.exists(SIGNAL_CACHE_FILE):
@@ -45,12 +45,11 @@ def get_next_top_signal():
 
 async def cache_top_signals():
     top_signals = await analyze_cryptos()
-    top_signals = top_signals[:MAX_SIGNAL_CACHE]  # ограничение по размеру кеша
+    top_signals = top_signals[:MAX_SIGNAL_CACHE]
     with open(SIGNAL_CACHE_FILE, "w") as f:
         json.dump(top_signals, f)
 
 def fnum(x):
-    """Округление до 2 знаков после точки, без лишних нулей"""
     return f"{x:.2f}".rstrip('0').rstrip('.') if '.' in f"{x:.2f}" else f"{x:.2f}"
 
 async def send_signal_message(user_id, context):
@@ -105,3 +104,10 @@ async def debug_cache_message(user_id, context):
     msg += f"Остались: {', '.join(unused) if unused else '—'}"
 
     await context.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
+
+async def debug_analysis_message(user_id, context):
+    if not ANALYSIS_LOG:
+        await context.bot.send_message(chat_id=user_id, text="⏳ Анализ ещё не выполнялся.")
+    else:
+        msg = "*📊 Отладка анализа монет:*\n\n" + "\n".join(ANALYSIS_LOG[-50:])
+        await context.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
