@@ -90,48 +90,33 @@ def fnum(x):
 
 async def send_signal_message(user_id, context):
     await ensure_top_signals_available()
-
     signal = get_next_top_signal()
 
     if not signal:
-        print("🔄 Повторный анализ: нет новых сигналов в кеше.")
-        top_signals = await analyze_cryptos()
-        if not top_signals:
-            print("❗ Строгий фильтр не дал результатов — fallback-анализ...")
-            top_signals = await analyze_cryptos(fallback=True)
-            for s in top_signals:
-                s["fallback"] = True
-        else:
-            for s in top_signals:
-                s["fallback"] = False
-        with open(SIGNAL_CACHE_FILE, "w") as f:
-            json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
-        signal = get_next_top_signal()
-
-    if signal:
-        price = float(signal.get("current_price", 0))
-        target_price = round(price * 1.05, 6)
-        stop_price = round(price * 0.97, 6)
-        change_24h = float(signal.get("price_change_percentage_24h", 0))
-        probability = signal.get("probability", "?")
-        fallback_note = "\n⚠️ Сигнал из резервного режима (упрощённый фильтр)" if signal.get("fallback") else ""
-
-        message = (
-            f"*🚀 Сигнал на покупку: {signal['symbol']}*\n\n"
-            f"*Цена входа:* ${fnum(price)}\n"
-            f"*Цель:* +5% → ${fnum(target_price)}\n"
-            f"*Стоп-лосс:* -3% → ${fnum(stop_price)}\n"
-            f"*Изменение за 24ч:* {fnum(change_24h)}%\n"
-            f"*Вероятность роста:* {probability}%\n"
-            f"{fallback_note}"
-        )
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
-        ])
-        await context.bot.send_message(chat_id=user_id, text=message, reply_markup=keyboard, parse_mode="Markdown")
-    else:
         await context.bot.send_message(chat_id=user_id, text="Нет подходящих сигналов на текущий момент.")
+        return
+
+    price = float(signal.get("current_price", 0))
+    target_price = round(price * 1.05, 6)
+    stop_price = round(price * 0.97, 6)
+    change_24h = float(signal.get("price_change_percentage_24h", 0))
+    probability = signal.get("probability", "?")
+    fallback_note = "\n⚠️ Сигнал из резервного режима (упрощённый фильтр)" if signal.get("fallback") else ""
+
+    message = (
+        f"*🚀 Сигнал на покупку: {signal['symbol']}*\n\n"
+        f"*Цена входа:* ${fnum(price)}\n"
+        f"*Цель:* +5% → ${fnum(target_price)}\n"
+        f"*Стоп-лосс:* -3% → ${fnum(stop_price)}\n"
+        f"*Изменение за 24ч:* {fnum(change_24h)}%\n"
+        f"*Вероятность роста:* {probability}%\n"
+        f"{fallback_note}"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
+    ])
+    await context.bot.send_message(chat_id=user_id, text=message, reply_markup=keyboard, parse_mode="Markdown")
 
 def schedule_daily_signal_check(app, owner_id):
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
