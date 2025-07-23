@@ -47,12 +47,19 @@ def get_next_top_signal():
 async def ensure_top_signals_available():
     signals = load_cached_signals()
     used = load_used_symbols()
-
     unused = [s for s in signals if s["symbol"] not in used]
 
     if not unused:
         print("⚠️ Кеш пуст или все сигналы использованы — повторный анализ...")
         top_signals = await analyze_cryptos()
+        if not top_signals:
+            print("⛔ Строгий фильтр не дал результатов — fallback-анализ...")
+            top_signals = await analyze_cryptos(fallback=True)
+            for s in top_signals:
+                s["fallback"] = True
+        else:
+            for s in top_signals:
+                s["fallback"] = False
         with open(SIGNAL_CACHE_FILE, "w") as f:
             json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
 
@@ -64,6 +71,14 @@ async def refresh_signal_cache_job(app: Application):
     if not unused:
         print("♻️ Автообновление кеша сигналов...")
         top_signals = await analyze_cryptos()
+        if not top_signals:
+            print("⛔ Fallback-анализ при автообновлении...")
+            top_signals = await analyze_cryptos(fallback=True)
+            for s in top_signals:
+                s["fallback"] = True
+        else:
+            for s in top_signals:
+                s["fallback"] = False
         with open(SIGNAL_CACHE_FILE, "w") as f:
             json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
         print("✅ Кеш сигналов обновлён.")
@@ -83,6 +98,7 @@ async def send_signal_message(user_id, context):
         stop_price = round(price * 0.97, 6)
         change_24h = float(signal.get("price_change_percentage_24h", 0))
         probability = signal.get("probability", "?")
+        fallback_note = "\n⚠️ Сигнал из резервного режима (упрощённый фильтр)" if signal.get("fallback") else ""
 
         message = (
             f"*🚀 Сигнал на покупку: {signal['symbol']}*\n\n"
@@ -91,6 +107,7 @@ async def send_signal_message(user_id, context):
             f"*Стоп-лосс:* -3% → ${fnum(stop_price)}\n"
             f"*Изменение за 24ч:* {fnum(change_24h)}%\n"
             f"*Вероятность роста:* {probability}%\n"
+            f"{fallback_note}"
         )
 
         keyboard = InlineKeyboardMarkup([
@@ -103,11 +120,9 @@ async def send_signal_message(user_id, context):
 def schedule_daily_signal_check(app, owner_id):
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
     
-    # Утренний сигнал
     scheduler.add_job(lambda: app.create_task(send_signal_message(owner_id, app)),
                       trigger='cron', hour=8, minute=0, id='daily_signal')
 
-    # Обновление кеша каждые 3 часа
     scheduler.add_job(lambda: app.create_task(refresh_signal_cache_job(app)),
                       trigger='interval', hours=3, id='refresh_signal_cache')
 
@@ -116,7 +131,6 @@ def schedule_daily_signal_check(app, owner_id):
 async def debug_cache_message(user_id, context):
     cached = load_cached_signals()
     used = load_used_symbols()
-
     cached_symbols = [c["symbol"] for c in cached]
     unused = [s for s in cached_symbols if s not in used]
 
