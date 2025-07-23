@@ -28,13 +28,14 @@ def save_used_symbol(symbol):
     with open(USED_SYMBOLS_FILE, "w") as f:
         json.dump(used[-MAX_SIGNAL_CACHE:], f)
 
+def load_cached_signals():
+    if os.path.exists(SIGNAL_CACHE_FILE):
+        with open(SIGNAL_CACHE_FILE, "r") as f:
+            return json.load(f)
+    return []
+
 def get_next_top_signal():
-    if not os.path.exists(SIGNAL_CACHE_FILE):
-        return None
-
-    with open(SIGNAL_CACHE_FILE, "r") as f:
-        signals = json.load(f)
-
+    signals = load_cached_signals()
     used = load_used_symbols()
 
     for signal in signals:
@@ -43,16 +44,23 @@ def get_next_top_signal():
             return signal
     return None
 
-async def cache_top_signals():
-    top_signals = await analyze_cryptos()
-    with open(SIGNAL_CACHE_FILE, "w") as f:
-        json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
+async def ensure_top_signals_available():
+    signals = load_cached_signals()
+    used = load_used_symbols()
+
+    unused = [s for s in signals if s["symbol"] not in used]
+
+    if not unused:
+        print("⚠️ Кеш пуст или все сигналы использованы — повторный анализ...")
+        top_signals = await analyze_cryptos()
+        with open(SIGNAL_CACHE_FILE, "w") as f:
+            json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
 
 def fnum(x):
     return f"{x:.2f}".rstrip('0').rstrip('.') if '.' in f"{x:.2f}" else f"{x:.2f}"
 
 async def send_signal_message(user_id, context):
-    await cache_top_signals()
+    await ensure_top_signals_available()
     signal = get_next_top_signal()
 
     if signal:
@@ -85,16 +93,8 @@ def schedule_daily_signal_check(app, owner_id):
     scheduler.start()
 
 async def debug_cache_message(user_id, context):
-    cached = []
-    used = []
-
-    if os.path.exists(SIGNAL_CACHE_FILE):
-        with open(SIGNAL_CACHE_FILE, "r") as f:
-            cached = json.load(f)
-
-    if os.path.exists(USED_SYMBOLS_FILE):
-        with open(USED_SYMBOLS_FILE, "r") as f:
-            used = json.load(f)
+    cached = load_cached_signals()
+    used = load_used_symbols()
 
     cached_symbols = [c["symbol"] for c in cached]
     unused = [s for s in cached_symbols if s not in used]
