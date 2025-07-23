@@ -93,7 +93,6 @@ async def send_signal_message(user_id, context):
 
     signal = get_next_top_signal()
 
-    # 👉 если сигналов не осталось, заново анализируем
     if not signal:
         print("🔄 Повторный анализ: нет новых сигналов в кеше.")
         top_signals = await analyze_cryptos()
