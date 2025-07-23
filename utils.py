@@ -7,6 +7,7 @@ from telegram.ext import Application
 
 USED_SYMBOLS_FILE = "used_symbols.json"
 SIGNAL_CACHE_FILE = "top_signals_cache.json"
+MAX_SIGNAL_CACHE = 6
 
 def reset_cache():
     if os.path.exists(SIGNAL_CACHE_FILE):
@@ -22,9 +23,10 @@ def load_used_symbols():
 
 def save_used_symbol(symbol):
     used = load_used_symbols()
-    used.append(symbol)
+    if symbol not in used:
+        used.append(symbol)
     with open(USED_SYMBOLS_FILE, "w") as f:
-        json.dump(used[-6:], f)
+        json.dump(used[-MAX_SIGNAL_CACHE:], f)  # храним только последние 6
 
 def get_next_top_signal():
     if not os.path.exists(SIGNAL_CACHE_FILE):
@@ -43,6 +45,7 @@ def get_next_top_signal():
 
 async def cache_top_signals():
     top_signals = await analyze_cryptos()
+    top_signals = top_signals[:MAX_SIGNAL_CACHE]  # ограничение по размеру кеша
     with open(SIGNAL_CACHE_FILE, "w") as f:
         json.dump(top_signals, f)
 
@@ -70,9 +73,9 @@ async def send_signal_message(user_id, context):
             f"*Вероятность роста:* {probability}%\n"
         )
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
-        ])
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")
+        ]])
 
         await context.bot.send_message(chat_id=user_id, text=message, reply_markup=keyboard, parse_mode="Markdown")
     else:
