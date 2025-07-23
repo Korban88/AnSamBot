@@ -45,9 +45,8 @@ def get_next_top_signal():
 
 async def cache_top_signals():
     top_signals = await analyze_cryptos()
-    top_signals = top_signals[:MAX_SIGNAL_CACHE]
     with open(SIGNAL_CACHE_FILE, "w") as f:
-        json.dump(top_signals, f)
+        json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
 
 def fnum(x):
     return f"{x:.2f}".rstrip('0').rstrip('.') if '.' in f"{x:.2f}" else f"{x:.2f}"
@@ -72,7 +71,9 @@ async def send_signal_message(user_id, context):
             f"*Вероятность роста:* {probability}%\n"
         )
 
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]])
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
+        ])
         await context.bot.send_message(chat_id=user_id, text=message, reply_markup=keyboard, parse_mode="Markdown")
     else:
         await context.bot.send_message(chat_id=user_id, text="Нет подходящих сигналов на текущий момент.")
