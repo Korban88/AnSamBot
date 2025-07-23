@@ -56,6 +56,20 @@ async def ensure_top_signals_available():
         with open(SIGNAL_CACHE_FILE, "w") as f:
             json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
 
+async def refresh_signal_cache_job(app: Application):
+    signals = load_cached_signals()
+    used = load_used_symbols()
+    unused = [s for s in signals if s["symbol"] not in used]
+
+    if not unused:
+        print("♻️ Автообновление кеша сигналов...")
+        top_signals = await analyze_cryptos()
+        with open(SIGNAL_CACHE_FILE, "w") as f:
+            json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
+        print("✅ Кеш сигналов обновлён.")
+    else:
+        print("🟢 Кеш сигналов актуален — обновление не требуется.")
+
 def fnum(x):
     return f"{x:.2f}".rstrip('0').rstrip('.') if '.' in f"{x:.2f}" else f"{x:.2f}"
 
@@ -88,8 +102,15 @@ async def send_signal_message(user_id, context):
 
 def schedule_daily_signal_check(app, owner_id):
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
+    
+    # Утренний сигнал
     scheduler.add_job(lambda: app.create_task(send_signal_message(owner_id, app)),
                       trigger='cron', hour=8, minute=0, id='daily_signal')
+
+    # Обновление кеша каждые 3 часа
+    scheduler.add_job(lambda: app.create_task(refresh_signal_cache_job(app)),
+                      trigger='interval', hours=3, id='refresh_signal_cache')
+
     scheduler.start()
 
 async def debug_cache_message(user_id, context):
