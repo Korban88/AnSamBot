@@ -86,12 +86,15 @@ def evaluate_coin(coin, fallback=False):
     probability = min(90, base_prob + score * multiplier)
     probability = round(probability, 2)
 
-    ANALYSIS_LOG.append(f"🔍 {symbol}: " + "; ".join(log_parts) + f" → score={score}, prob={probability}%")
+    log_line = f"🔍 {symbol}: " + "; ".join(log_parts) + f" → score={score}, prob={probability}%"
+    ANALYSIS_LOG.append(log_line)
+    logger.info(log_line)
+
     return score, probability
 
 async def analyze_cryptos(fallback=False):
     global ANALYSIS_LOG
-    ANALYSIS_LOG = []  # сброс логов
+    ANALYSIS_LOG.clear()
 
     coin_ids = TELEGRAM_WALLET_COIN_IDS if isinstance(TELEGRAM_WALLET_COIN_IDS, list) else list(TELEGRAM_WALLET_COIN_IDS.keys())
     all_data = await get_all_coin_data(coin_ids)
