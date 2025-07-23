@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from analysis import analyze_cryptos
-from utils import send_signal_message, reset_cache, debug_cache_message
+from utils import send_signal_message, reset_cache, debug_cache_message, debug_analysis_message
 from tracking import CoinTracker
 from config import TELEGRAM_BOT_TOKEN, OWNER_ID
 import json
@@ -22,6 +22,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 start_handler = CommandHandler("start", start)
 debug_handler = CommandHandler("debug_cache", lambda update, context: debug_cache_message(update.effective_user.id, context))
+debug_analysis_handler = CommandHandler("debug_analysis", lambda update, context: debug_analysis_message(update.effective_user.id, context))
 
 # --- inline buttons handler ---
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
