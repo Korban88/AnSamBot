@@ -20,14 +20,8 @@ def evaluate_coin(coin, fallback=False):
         logger.info(log)
         return -100, 0
 
-    if change_24h < -5 and not fallback:
-        log = f"❌ {symbol}: сильное падение за 24ч {change_24h:.2f}% — исключено"
-        ANALYSIS_LOG.append(log)
-        logger.info(log)
-        return -100, 0
-
-    if change_24h < -7 and fallback:
-        log = f"❌ {symbol}: падение {change_24h:.2f}% даже в fallback — исключено"
+    if change_24h < -7:
+        log = f"❌ {symbol}: падение {change_24h:.2f}% — исключено"
         ANALYSIS_LOG.append(log)
         logger.info(log)
         return -100, 0
@@ -36,33 +30,26 @@ def evaluate_coin(coin, fallback=False):
     log_parts = []
 
     # RSI
-    if not fallback:
-        if 50 <= rsi <= 60:
-            score += 2
-            log_parts.append(f"✅ RSI={rsi}")
-        elif 45 <= rsi < 50 or 60 < rsi <= 65:
-            score += 1
-            log_parts.append(f"⚠️ RSI на грани: {rsi}")
-        else:
-            log_parts.append(f"🔸 RSI вне зоны ({rsi})")
+    if 50 <= rsi <= 60:
+        score += 2
+        log_parts.append(f"✅ RSI={rsi}")
+    elif 45 <= rsi < 50 or 60 < rsi <= 70:
+        score += 1
+        log_parts.append(f"⚠️ RSI допустимый: {rsi}")
     else:
-        if 45 <= rsi <= 65:
-            score += 1
-            log_parts.append(f"⚠️ RSI в широком диапазоне: {rsi}")
-        else:
-            log_parts.append(f"🔸 RSI вне даже fallback диапазона ({rsi})")
+        log_parts.append(f"🔸 RSI вне зоны: {rsi}")
 
     # MA7
     if price > ma7:
         score += 2
         log_parts.append(f"✅ Цена выше MA7 (P={price} > MA7={ma7})")
+    elif price >= ma7 * 0.98:
+        score += 1
+        log_parts.append(f"⚠️ Цена немного ниже MA7 (P={price} < MA7={ma7})")
     else:
-        if fallback:
-            log_parts.append(f"🔸 Цена ниже MA7 (fallback режим)")
-        else:
-            log_parts.append(f"🔸 Цена ниже MA7 (P={price} < MA7={ma7})")
+        log_parts.append(f"🔸 Цена ниже MA7 (P={price} < MA7={ma7})")
 
-    # 24ч изменение
+    # 24h изменение
     if change_24h > 5:
         score += 2
         log_parts.append(f"✅ Рост 24ч: {change_24h:.2f}%")
@@ -70,19 +57,20 @@ def evaluate_coin(coin, fallback=False):
         score += 1
         log_parts.append(f"⚠️ Умеренный рост 24ч: {change_24h:.2f}%")
     elif 0 > change_24h >= -5:
-        if (rsi < 45 or price < ma7) and not fallback:
-            log = f"❌ {symbol}: падение {change_24h:.2f}% и нет признаков разворота"
+        if rsi >= 50 and price >= ma7:
+            score += 1
+            log_parts.append(f"⚠️ Падение, но признаки разворота: {change_24h:.2f}%")
+        else:
+            log = f"❌ {symbol}: падение {change_24h:.2f}% без признаков разворота"
             ANALYSIS_LOG.append(log)
             logger.info(log)
             return -100, 0
-        else:
-            log_parts.append(f"⚠️ Падение {change_24h:.2f}%, но возможен разворот")
-    elif fallback and -7 < change_24h < 0:
-        log_parts.append(f"🔸 Небольшое падение в fallback: {change_24h:.2f}%")
+    else:
+        log_parts.append(f"🔸 Незначительное падение: {change_24h:.2f}%")
 
-    # Вероятность
-    base_prob = 45 if not fallback else 40
-    multiplier = 7 if not fallback else 6
+    # Расчёт вероятности
+    base_prob = 45
+    multiplier = 7
     probability = min(90, base_prob + score * multiplier)
     probability = round(probability, 2)
 
@@ -108,16 +96,10 @@ async def analyze_cryptos(fallback=False):
 
         score, probability = evaluate_coin(coin, fallback=fallback)
 
-        if not fallback:
-            if score < 2 or probability < 65:
-                log = f"⛔ {coin['symbol'].upper()}: score={score}, prob={probability}% — отклонена"
-                ANALYSIS_LOG.append(log)
-                continue
-        else:
-            if score < 1 or probability < 55:
-                log = f"⛔ {coin['symbol'].upper()} (fallback): score={score}, prob={probability}% — отклонена"
-                ANALYSIS_LOG.append(log)
-                continue
+        if score < 2 or probability < 60:
+            log = f"⛔ {coin['symbol'].upper()}: score={score}, prob={probability}% — отклонена"
+            ANALYSIS_LOG.append(log)
+            continue
 
         coin["score"] = score
         coin["probability"] = probability
