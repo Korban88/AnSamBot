@@ -12,48 +12,55 @@ def evaluate_coin(coin):
     ma7 = coin.get("ma7", 0)
     price = coin.get("current_price", 0)
     change_24h = coin.get("price_change_percentage_24h", 0)
-    symbol = coin.get("symbol", "?")
+    symbol = coin.get("symbol", "?").upper()
 
     if not rsi or not ma7 or not price:
-        log = f"❌ {symbol.upper()}: недостаточно данных (rsi/ma7/price)"
+        log = f"❌ {symbol}: недостаточно данных (RSI={rsi}, MA7={ma7}, Price={price})"
         ANALYSIS_LOG.append(log)
         logger.info(log)
         return -100, 0
 
     if change_24h < -5:
-        log = f"❌ {symbol.upper()}: падение за 24ч {change_24h:.2f}%"
+        log = f"❌ {symbol}: сильное падение за 24ч {change_24h:.2f}% — исключено"
         ANALYSIS_LOG.append(log)
         logger.info(log)
         return -100, 0
 
     score = 0
+    log_parts = []
 
     if 50 <= rsi <= 60:
         score += 2
+        log_parts.append(f"✅ RSI={rsi}")
     elif 45 <= rsi < 50 or 60 < rsi <= 65:
         score += 1
+        log_parts.append(f"⚠️ RSI на грани: {rsi}")
     else:
-        ANALYSIS_LOG.append(f"🔸 {symbol.upper()}: RSI вне зоны ({rsi})")
+        log_parts.append(f"🔸 RSI вне зоны ({rsi})")
 
     if price > ma7:
         score += 2
+        log_parts.append(f"✅ Цена выше MA7 (P={price} > MA7={ma7})")
     else:
-        ANALYSIS_LOG.append(f"🔸 {symbol.upper()}: цена ниже MA7 (price={price}, ma7={ma7})")
+        log_parts.append(f"🔸 Цена ниже MA7 (P={price} < MA7={ma7})")
 
     if change_24h > 5:
         score += 2
+        log_parts.append(f"✅ Рост 24ч: {change_24h:.2f}%")
     elif change_24h > 2:
         score += 1
+        log_parts.append(f"⚠️ Умеренный рост 24ч: {change_24h:.2f}%")
     elif 0 > change_24h >= -5:
         if (rsi < 45 or price < ma7):
-            log = f"❌ {symbol.upper()}: падение {change_24h:.2f}% без признаков разворота"
+            log = f"❌ {symbol}: падение {change_24h:.2f}% и нет признаков разворота"
             ANALYSIS_LOG.append(log)
             logger.info(log)
             return -100, 0
         else:
-            ANALYSIS_LOG.append(f"✅ {symbol.upper()}: падение {change_24h:.2f}%, но есть признаки разворота")
+            log_parts.append(f"⚠️ Падение {change_24h:.2f}%, но возможен разворот")
 
     probability = max(0, min(90, 60 + score * 5))
+    ANALYSIS_LOG.append(f"🔍 {symbol}: " + "; ".join(log_parts) + f" → score={score}, prob={probability}%")
     return score, round(probability, 2)
 
 async def analyze_cryptos():
@@ -80,7 +87,7 @@ async def analyze_cryptos():
         coin["score"] = score
         coin["probability"] = probability
         candidates.append(coin)
-        ANALYSIS_LOG.append(f"✅ {coin['symbol'].upper()}: score={score}, prob={probability}% — ДОБАВЛЕНА")
+        ANALYSIS_LOG.append(f"✅ {coin['symbol'].upper()}: ДОБАВЛЕНА в топ (score={score}, prob={probability}%)")
 
     candidates.sort(key=lambda x: x["probability"], reverse=True)
 
