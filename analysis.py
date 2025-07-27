@@ -4,7 +4,7 @@ from crypto_list import TELEGRAM_WALLET_COIN_IDS
 
 logger = logging.getLogger(__name__)
 
-EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
+EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum", "xrp", "avax"}
 ANALYSIS_LOG = []
 
 
@@ -13,27 +13,33 @@ def evaluate_coin(coin):
     ma7 = coin.get("ma7", 0)
     price = coin.get("current_price", 0)
     change_24h = coin.get("price_change_percentage_24h", 0)
+    volume_24h = coin.get("total_volume", 0)
     symbol = coin.get("symbol", "?").upper()
 
     reasons = []
     score = 0
 
-    if 50 <= rsi <= 60:
+    if 48 <= rsi <= 62:
         score += 1
     else:
-        reasons.append(f"RSI {rsi} вне диапазона 50–60")
+        reasons.append(f"RSI {rsi} вне диапазона 48–62")
 
     if price >= ma7:
         score += 1
     else:
         reasons.append(f"Цена ${price} ниже MA7 ${ma7}")
 
-    if change_24h > 2:
+    if change_24h > 1.5:
         score += 1
     else:
         reasons.append(f"Изменение за 24ч {change_24h}% недостаточно")
 
-    prob = 60 + score * 10
+    if 5_000_000 <= volume_24h <= 200_000_000:
+        score += 1
+    else:
+        reasons.append(f"Объём {volume_24h} вне диапазона 5M–200M")
+
+    prob = 55 + score * 10
     prob = round(min(prob, 95), 2)
 
     if score > 0:
