@@ -24,7 +24,6 @@ def evaluate_coin(coin):
     reasons = []
     score = 0
 
-    # 🔹 Временно ослабленный фильтр
     if 45 <= rsi <= 65:
         score += 1
     else:
@@ -67,7 +66,7 @@ async def analyze_cryptos(fallback=False):
     ANALYSIS_LOG.clear()
 
     try:
-        coin_ids = TELEGRAM_WALLET_COIN_IDS if isinstance(TELEGRAM_WALLET_COIN_IDS, list) else list(TELEGRAM_WALLET_COIN_IDS.keys())
+        coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
         all_data = await get_all_coin_data(coin_ids)
     except Exception as e:
         logger.error(f"Ошибка при получении данных: {e}")
@@ -82,16 +81,17 @@ async def analyze_cryptos(fallback=False):
         if score >= 3:
             coin["score"] = score
             coin["probability"] = prob
+            coin["price_change_percentage_24h"] = safe_float(coin.get("price_change_percentage_24h"))
             candidates.append(coin)
 
-    candidates.sort(key=lambda x: (x["probability"], x["price_change_percentage_24h"]), reverse=True)
+    candidates.sort(key=lambda x: (safe_float(x.get("probability")), x["price_change_percentage_24h"]), reverse=True)
 
     top_signals = []
     for coin in candidates[:6]:
         signal = {
             "id": coin["id"],
             "symbol": coin["symbol"],
-            "current_price": coin["current_price"],
+            "current_price": safe_float(coin.get("current_price")),
             "price_change_percentage_24h": round(safe_float(coin.get("price_change_percentage_24h")), 2),
             "probability": coin["probability"]
         }
