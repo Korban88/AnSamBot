@@ -18,31 +18,32 @@ def evaluate_coin(coin):
     reasons = []
     score = 0
 
-    if 52 <= rsi <= 60:
+    # Ослабленные фильтры
+    if 45 <= rsi <= 70:
         score += 1
     else:
-        reasons.append(f"RSI {rsi} вне диапазона 52–60")
+        reasons.append(f"RSI {rsi} вне диапазона 45–70")
 
     if price > ma7:
         score += 1
     else:
         reasons.append(f"Цена ${price} ниже MA7 ${ma7}")
 
-    if change_24h >= 2.5:
+    if change_24h >= 1.0:
         score += 1
     else:
         reasons.append(f"Изменение за 24ч {change_24h}% недостаточно")
 
-    if 5_000_000 <= volume <= 100_000_000:
+    if 1_000_000 <= volume <= 500_000_000:
         score += 1
     else:
-        reasons.append(f"Объём {volume} вне диапазона 5M–100M")
+        reasons.append(f"Объём {volume} вне диапазона 1M–500M")
 
-    # Улучшенный расчёт вероятности
-    rsi_weight = 1 if 52 <= rsi <= 60 else 0
+    # Обновлённый расчёт вероятности
+    rsi_weight = 1 if 45 <= rsi <= 70 else 0
     ma_weight = 1 if price > ma7 else 0
     change_weight = min(change_24h / 5, 1)
-    volume_weight = 1 if 5_000_000 <= volume <= 100_000_000 else 0
+    volume_weight = 1 if 1_000_000 <= volume <= 500_000_000 else 0
 
     prob = 50 + (rsi_weight + ma_weight + change_weight + volume_weight) * 11.25
     prob = round(min(prob, 95), 2)
