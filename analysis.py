@@ -7,7 +7,6 @@ logger = logging.getLogger(__name__)
 EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
 ANALYSIS_LOG = []
 
-
 def evaluate_coin(coin):
     rsi = coin.get("rsi", 0)
     ma7 = coin.get("ma7", 0)
@@ -47,7 +46,7 @@ def evaluate_coin(coin):
         rsi_weight = 0.5
 
     ma_weight = 1 if price >= ma7 else 0
-    change_weight = min(change_24h / 5, 1)  # максимум +1 балл за рост >5%
+    change_weight = min(change_24h / 5, 1)
     volume_weight = 1 if 5_000_000 <= volume <= 200_000_000 else 0
 
     prob = 50 + (rsi_weight + ma_weight + change_weight + volume_weight) * 11.25
@@ -73,12 +72,6 @@ async def analyze_cryptos(fallback=False):
     for coin in all_data:
         if coin.get("id") in EXCLUDE_IDS:
             continue
-
-        # Строгий фильтр: исключить монеты с изменением менее 2%
-        if coin.get("price_change_percentage_24h", 0) < 2:
-            ANALYSIS_LOG.append(f"❌ {coin.get('symbol', '?').upper()}: отклонено — прирост < 2%")
-            continue
-
         score, prob = evaluate_coin(coin)
         if score > 0:
             coin["score"] = score
@@ -89,12 +82,10 @@ async def analyze_cryptos(fallback=False):
 
     top_signals = []
     for coin in candidates[:6]:
-        price = coin["current_price"]
-        price_str = f"${price:.4f}" if price < 1 else f"${price:.2f}"
         signal = {
             "id": coin["id"],
             "symbol": coin["symbol"],
-            "current_price": price_str,
+            "current_price": coin["current_price"],  # float
             "price_change_percentage_24h": round(coin.get("price_change_percentage_24h", 0), 2),
             "probability": coin["probability"]
         }
