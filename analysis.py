@@ -4,7 +4,7 @@ from crypto_list import TELEGRAM_WALLET_COIN_IDS
 
 logger = logging.getLogger(__name__)
 
-EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum", "xrp", "avax"}
+EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
 ANALYSIS_LOG = []
 
 
@@ -13,33 +13,37 @@ def evaluate_coin(coin):
     ma7 = coin.get("ma7", 0)
     price = coin.get("current_price", 0)
     change_24h = coin.get("price_change_percentage_24h", 0)
-    volume_24h = coin.get("total_volume", 0)
     symbol = coin.get("symbol", "?").upper()
 
     reasons = []
     score = 0
 
-    if 48 <= rsi <= 62:
+    if 50 <= rsi <= 60:
         score += 1
     else:
-        reasons.append(f"RSI {rsi} вне диапазона 48–62")
+        reasons.append(f"RSI {rsi} вне диапазона 50–60")
 
     if price >= ma7:
         score += 1
     else:
         reasons.append(f"Цена ${price} ниже MA7 ${ma7}")
 
-    if change_24h > 1.5:
+    if change_24h > 2:
         score += 1
     else:
         reasons.append(f"Изменение за 24ч {change_24h}% недостаточно")
 
-    if 5_000_000 <= volume_24h <= 200_000_000:
-        score += 1
-    else:
-        reasons.append(f"Объём {volume_24h} вне диапазона 5M–200M")
+    # Улучшенный расчёт вероятности
+    rsi_weight = 0
+    if 50 <= rsi <= 60:
+        rsi_weight = 1
+    elif 48 <= rsi < 50 or 60 < rsi <= 62:
+        rsi_weight = 0.5
 
-    prob = 55 + score * 10
+    ma_weight = 1 if price >= ma7 else 0
+    change_weight = min(change_24h / 5, 1)  # максимум +1 балл за рост >5%
+
+    prob = 50 + (rsi_weight + ma_weight + change_weight) * 15
     prob = round(min(prob, 95), 2)
 
     if score > 0:
@@ -68,7 +72,7 @@ async def analyze_cryptos(fallback=False):
             coin["probability"] = prob
             candidates.append(coin)
 
-    candidates.sort(key=lambda x: x["probability"], reverse=True)
+    candidates.sort(key=lambda x: (x["probability"], x["price_change_percentage_24h"]), reverse=True)
 
     top_signals = []
     for coin in candidates[:6]:
