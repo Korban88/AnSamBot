@@ -7,12 +7,18 @@ logger = logging.getLogger(__name__)
 EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
 ANALYSIS_LOG = []
 
+def safe_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
 def evaluate_coin(coin):
-    rsi = coin.get("rsi") or 0
-    ma7 = coin.get("ma7") or 0
-    price = coin.get("current_price") or 0
-    change_24h = coin.get("price_change_percentage_24h") or 0
-    volume = coin.get("total_volume") or 0
+    rsi = safe_float(coin.get("rsi"))
+    ma7 = safe_float(coin.get("ma7"))
+    price = safe_float(coin.get("current_price"))
+    change_24h = safe_float(coin.get("price_change_percentage_24h"))
+    volume = safe_float(coin.get("total_volume"))
     symbol = coin.get("symbol", "?").upper()
 
     reasons = []
@@ -78,7 +84,7 @@ async def analyze_cryptos(fallback=False):
             coin["probability"] = prob
             candidates.append(coin)
 
-    candidates.sort(key=lambda x: (x["probability"], x.get("price_change_percentage_24h") or 0), reverse=True)
+    candidates.sort(key=lambda x: (x["probability"], x["price_change_percentage_24h"]), reverse=True)
 
     top_signals = []
     for coin in candidates[:6]:
@@ -86,7 +92,7 @@ async def analyze_cryptos(fallback=False):
             "id": coin["id"],
             "symbol": coin["symbol"],
             "current_price": coin["current_price"],
-            "price_change_percentage_24h": round(coin.get("price_change_percentage_24h") or 0, 2),
+            "price_change_percentage_24h": round(safe_float(coin.get("price_change_percentage_24h")), 2),
             "probability": coin["probability"]
         }
         top_signals.append(signal)
