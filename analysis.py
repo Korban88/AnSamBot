@@ -60,7 +60,6 @@ def evaluate_coin(coin):
 
     return score, prob
 
-
 async def analyze_cryptos(fallback=False):
     global ANALYSIS_LOG
     ANALYSIS_LOG.clear()
@@ -77,6 +76,7 @@ async def analyze_cryptos(fallback=False):
     for coin in all_data:
         if coin.get("id") in EXCLUDE_IDS:
             continue
+
         score, prob = evaluate_coin(coin)
         if score >= 3:
             coin["score"] = score
@@ -84,7 +84,10 @@ async def analyze_cryptos(fallback=False):
             coin["price_change_percentage_24h"] = safe_float(coin.get("price_change_percentage_24h"))
             candidates.append(coin)
 
-    candidates.sort(key=lambda x: (safe_float(x.get("probability")), x["price_change_percentage_24h"]), reverse=True)
+    candidates.sort(key=lambda x: (
+        safe_float(x.get("probability")),
+        safe_float(x.get("price_change_percentage_24h"))
+    ), reverse=True)
 
     top_signals = []
     for coin in candidates[:6]:
