@@ -1,5 +1,6 @@
 import json
 import os
+import asyncio
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from apscheduler.schedulers.background import BackgroundScheduler
 from analysis import analyze_cryptos, ANALYSIS_LOG
@@ -123,11 +124,13 @@ async def send_signal_message(user_id, context):
 def schedule_daily_signal_check(app, owner_id):
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
 
-    scheduler.add_job(lambda: app.create_task(send_signal_message(owner_id, app)),
-                      trigger='cron', hour=8, minute=0, id='daily_signal')
+    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(
+        send_signal_message(owner_id, app), app.loop
+    ), trigger='cron', hour=8, minute=0, id='daily_signal')
 
-    scheduler.add_job(lambda: app.create_task(refresh_signal_cache_job(app)),
-                      trigger='interval', hours=3, id='refresh_signal_cache')
+    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(
+        refresh_signal_cache_job(app), app.loop
+    ), trigger='interval', hours=3, id='refresh_signal_cache')
 
     scheduler.start()
 
