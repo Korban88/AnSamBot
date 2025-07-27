@@ -73,6 +73,12 @@ async def analyze_cryptos(fallback=False):
     for coin in all_data:
         if coin.get("id") in EXCLUDE_IDS:
             continue
+
+        # Строгий фильтр: исключить монеты с изменением менее 2%
+        if coin.get("price_change_percentage_24h", 0) < 2:
+            ANALYSIS_LOG.append(f"❌ {coin.get('symbol', '?').upper()}: отклонено — прирост < 2%")
+            continue
+
         score, prob = evaluate_coin(coin)
         if score > 0:
             coin["score"] = score
@@ -83,10 +89,12 @@ async def analyze_cryptos(fallback=False):
 
     top_signals = []
     for coin in candidates[:6]:
+        price = coin["current_price"]
+        price_str = f"${price:.4f}" if price < 1 else f"${price:.2f}"
         signal = {
             "id": coin["id"],
             "symbol": coin["symbol"],
-            "current_price": coin["current_price"],
+            "current_price": price_str,
             "price_change_percentage_24h": round(coin.get("price_change_percentage_24h", 0), 2),
             "probability": coin["probability"]
         }
