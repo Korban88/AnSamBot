@@ -10,7 +10,6 @@ USED_SYMBOLS_FILE = "used_symbols.json"
 SIGNAL_CACHE_FILE = "top_signals_cache.json"
 
 # Сброс кэша
-
 def reset_cache():
     if os.path.exists(SIGNAL_CACHE_FILE):
         os.remove(SIGNAL_CACHE_FILE)
@@ -18,7 +17,6 @@ def reset_cache():
         os.remove(USED_SYMBOLS_FILE)
 
 # Загрузка использованных символов
-
 def load_used_symbols():
     if os.path.exists(USED_SYMBOLS_FILE):
         with open(USED_SYMBOLS_FILE, "r") as f:
@@ -26,7 +24,6 @@ def load_used_symbols():
     return []
 
 # Сохранение использованного символа
-
 def save_used_symbol(symbol):
     used = load_used_symbols()
     used.append(symbol)
@@ -34,7 +31,6 @@ def save_used_symbol(symbol):
         json.dump(used[-6:], f)  # Храним только последние 6 монет для ротации
 
 # Загрузка кэша сигналов
-
 def load_signal_cache():
     if os.path.exists(SIGNAL_CACHE_FILE):
         with open(SIGNAL_CACHE_FILE, "r") as f:
@@ -42,16 +38,14 @@ def load_signal_cache():
     return []
 
 # Сохранение кэша сигналов
-
 def save_signal_cache(signals):
     with open(SIGNAL_CACHE_FILE, "w") as f:
         json.dump(signals, f)
 
 # Планировщик сигнала
-
-def schedule_daily_signal_check(app: Application):
+def schedule_daily_signal_check(app: Application, user_id: int):
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
-    scheduler.add_job(lambda: app.create_task(send_daily_signal(OWNER_ID, app)), "cron", hour=8, minute=0)
+    scheduler.add_job(lambda: app.create_task(send_daily_signal(user_id, app)), "cron", hour=8, minute=0)
     scheduler.start()
 
 # Отправка сигнала вручную или по расписанию
