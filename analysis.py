@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
 ANALYSIS_LOG = []
 
+
 def evaluate_coin(coin):
     rsi = coin.get("rsi", 0)
     ma7 = coin.get("ma7", 0)
@@ -14,19 +15,34 @@ def evaluate_coin(coin):
     change_24h = coin.get("price_change_percentage_24h", 0)
     symbol = coin.get("symbol", "?").upper()
 
+    reasons = []
     score = 0
-    if 40 <= rsi <= 70:
-        score += 1
-    if price >= ma7 * 0.95:
-        score += 1
-    if change_24h > -7:
-        score += 1
 
-    prob = 50 + score * 10
-    prob = round(min(prob, 90), 2)
+    if 50 <= rsi <= 60:
+        score += 1
+    else:
+        reasons.append(f"RSI {rsi} вне диапазона 50–60")
 
-    ANALYSIS_LOG.append(f"🔍 {symbol}: score={score}, prob={prob}%")
+    if price >= ma7:
+        score += 1
+    else:
+        reasons.append(f"Цена ${price} ниже MA7 ${ma7}")
+
+    if change_24h > 2:
+        score += 1
+    else:
+        reasons.append(f"Изменение за 24ч {change_24h}% недостаточно")
+
+    prob = 60 + score * 10
+    prob = round(min(prob, 95), 2)
+
+    if score > 0:
+        ANALYSIS_LOG.append(f"✅ {symbol}: score={score}, prob={prob}%")
+    else:
+        ANALYSIS_LOG.append(f"❌ {symbol}: отклонено — {', '.join(reasons)}")
+
     return score, prob
+
 
 async def analyze_cryptos(fallback=False):
     global ANALYSIS_LOG
