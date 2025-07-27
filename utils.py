@@ -1,119 +1,111 @@
-import logging
 import json
 import os
-from crypto_utils import get_all_coin_data
-from crypto_list import TELEGRAM_WALLET_COIN_IDS
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
+from analysis import analyze_cryptos
+from config import OWNER_ID
 
-logger = logging.getLogger(__name__)
-
-EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
-ANALYSIS_LOG = []
+SIGNAL_CACHE_FILE = "top_signals_cache.json"
+USED_SYMBOLS_FILE = "used_symbols.json"
 SIGNAL_TRACKER_FILE = "signal_tracker.json"
 
 
-def reset_signal_tracker():
-    with open(SIGNAL_TRACKER_FILE, "w") as f:
-        json.dump({"current_index": 0}, f)
+def reset_cache():
+    for file in [SIGNAL_CACHE_FILE, USED_SYMBOLS_FILE, SIGNAL_TRACKER_FILE]:
+        if os.path.exists(file):
+            os.remove(file)
 
 
-def load_signal_tracker():
+def load_used_symbols():
+    if os.path.exists(USED_SYMBOLS_FILE):
+        with open(USED_SYMBOLS_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+
+def save_used_symbol(symbol):
+    used = load_used_symbols()
+    used.append(symbol)
+    with open(USED_SYMBOLS_FILE, "w") as f:
+        json.dump(used[-6:], f)  # храним только последние 6
+
+
+def load_signal_cache():
+    if os.path.exists(SIGNAL_CACHE_FILE):
+        with open(SIGNAL_CACHE_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+
+def save_signal_cache(signals):
+    with open(SIGNAL_CACHE_FILE, "w") as f:
+        json.dump(signals, f)
+
+
+def get_next_signal():
+    signals = load_signal_cache()
+    if not signals:
+        return None
+
+    index = 0
     if os.path.exists(SIGNAL_TRACKER_FILE):
         with open(SIGNAL_TRACKER_FILE, "r") as f:
-            return json.load(f)
-    return {"current_index": 0}
+            index = json.load(f).get("index", 0)
 
+    if index >= len(signals):
+        return None
 
-def save_signal_tracker(index):
+    next_signal = signals[index]
+
     with open(SIGNAL_TRACKER_FILE, "w") as f:
-        json.dump({"current_index": index}, f)
+        json.dump({"index": index + 1}, f)
+
+    return next_signal
 
 
-def evaluate_coin(coin):
-    rsi = coin.get("rsi", 0)
-    ma7 = coin.get("ma7", 0)
-    price = coin.get("current_price", 0)
-    change_24h = coin.get("price_change_percentage_24h", 0)
-    volume = coin.get("total_volume", 0)
-    symbol = coin.get("symbol", "?").upper()
+async def send_signal_message(user_id, context):
+    signal = get_next_signal()
 
-    reasons = []
-    score = 0
+    if not signal:
+        await context.bot.send_message(chat_id=user_id, text="Нет подходящих сигналов.")
+        return
 
-    if 50 <= rsi <= 60:
-        score += 1
-    else:
-        reasons.append(f"RSI {rsi} вне диапазона 50–60")
+    symbol = signal.get("symbol", "?").upper()
+    price = float(str(signal.get("current_price", 0)).replace("$", ""))
+    target = round(price * 1.05, 4)
+    stop_loss = round(price * 0.97, 4)
+    change = signal.get("price_change_percentage_24h", 0)
+    prob = signal.get("probability", 0)
 
-    if price >= ma7:
-        score += 1
-    else:
-        reasons.append(f"Цена ${price} ниже MA7 ${ma7}")
+    text = (
+        f"📈 *Сигнал по монете {symbol}*\n"
+        f"Текущая цена: ${price}\n"
+        f"Цель: ${target} (+5%)\n"
+        f"Стоп-лосс: ${stop_loss} (-3%)\n"
+        f"Изменение за 24ч: {change}%\n"
+        f"Вероятность роста: *{prob}%*"
+    )
 
-    if change_24h > 2:
-        score += 1
-    else:
-        reasons.append(f"Изменение за 24ч {change_24h}% недостаточно")
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track:{symbol}")]
+    ])
 
-    if 5_000_000 <= volume <= 200_000_000:
-        score += 1
-    else:
-        reasons.append(f"Объём {volume} вне диапазона 5M–200M")
-
-    rsi_weight = 0
-    if 50 <= rsi <= 60:
-        rsi_weight = 1
-    elif 48 <= rsi < 50 or 60 < rsi <= 62:
-        rsi_weight = 0.5
-
-    ma_weight = 1 if price >= ma7 else 0
-    change_weight = min(change_24h / 5, 1)
-    volume_weight = 1 if 5_000_000 <= volume <= 200_000_000 else 0
-
-    prob = 50 + (rsi_weight + ma_weight + change_weight + volume_weight) * 11.25
-    prob = round(min(prob, 95), 2)
-
-    if score > 0:
-        ANALYSIS_LOG.append(f"✅ {symbol}: score={score}, prob={prob}%")
-    else:
-        ANALYSIS_LOG.append(f"❌ {symbol}: отклонено — {', '.join(reasons)}")
-
-    return score, prob
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=text,
+        reply_markup=keyboard,
+        parse_mode=ParseMode.MARKDOWN
+    )
 
 
-async def analyze_cryptos(fallback=False):
-    global ANALYSIS_LOG
-    ANALYSIS_LOG.clear()
+async def send_analysis_log(user_id, context):
+    from analysis import ANALYSIS_LOG
 
-    reset_signal_tracker()
+    if not ANALYSIS_LOG:
+        await context.bot.send_message(chat_id=user_id, text="Лог анализа пока пуст.")
+        return
 
-    coin_ids = TELEGRAM_WALLET_COIN_IDS if isinstance(TELEGRAM_WALLET_COIN_IDS, list) else list(TELEGRAM_WALLET_COIN_IDS.keys())
-    all_data = await get_all_coin_data(coin_ids)
+    log_text = "\n".join(ANALYSIS_LOG)
+    await context.bot.send_message(chat_id=user_id, text=f"*Анализ монет:*
 
-    candidates = []
-
-    for coin in all_data:
-        if coin.get("id") in EXCLUDE_IDS:
-            continue
-        score, prob = evaluate_coin(coin)
-        if score > 0:
-            coin["score"] = score
-            coin["probability"] = prob
-            candidates.append(coin)
-
-    candidates.sort(key=lambda x: (x["probability"], x["price_change_percentage_24h"]), reverse=True)
-
-    top_signals = []
-    for coin in candidates[:6]:
-        signal = {
-            "id": coin["id"],
-            "symbol": coin["symbol"],
-            "current_price": float(coin["current_price"]),
-            "price_change_percentage_24h": round(coin.get("price_change_percentage_24h", 0), 2),
-            "probability": coin["probability"]
-        }
-        top_signals.append(signal)
-
-    if not top_signals:
-        logger.info("⚠️ Нет подходящих монет вообще.")
-
-    return top_signals
+{log_text}", parse_mode=ParseMode.MARKDOWN)
