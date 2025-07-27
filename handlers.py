@@ -5,7 +5,8 @@ from utils import (
     send_signal_message,
     reset_cache,
     debug_cache_message,
-    debug_analysis_message
+    debug_analysis_message,
+    save_signal_cache
 )
 from tracking import CoinTracker
 
@@ -26,11 +27,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+# Команда /analyze — вручную запускает анализ монет и кэширует сигналы
+async def analyze_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    signals = await analyze_cryptos()
+    save_signal_cache(signals)
+    await update.message.reply_text("🔍 Анализ завершён. Сигналы сохранены в кэш.", reply_markup=reply_markup)
+
 start_handler = CommandHandler("start", start)
+analyze_command_handler = CommandHandler("analyze", analyze_handler)
 debug_handler = CommandHandler("debug_cache", lambda update, context: debug_cache_message(update.effective_user.id, context))
 debug_analysis_handler = CommandHandler("debug_analysis", lambda update, context: debug_analysis_message(update.effective_user.id, context))
 
-# Inline кнопки под сообщением (например "🔔 Следить за монетой")
+# Inline кнопки под сообщением
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
