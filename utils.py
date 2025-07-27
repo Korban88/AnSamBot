@@ -1,155 +1,119 @@
+import logging
 import json
 import os
-import asyncio
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from apscheduler.schedulers.background import BackgroundScheduler
-from analysis import analyze_cryptos, ANALYSIS_LOG
-from telegram.ext import Application
+from crypto_utils import get_all_coin_data
+from crypto_list import TELEGRAM_WALLET_COIN_IDS
 
-USED_SYMBOLS_FILE = "used_symbols.json"
-SIGNAL_CACHE_FILE = "top_signals_cache.json"
-MAX_SIGNAL_CACHE = 6
+logger = logging.getLogger(__name__)
 
-def reset_cache():
-    for f in [SIGNAL_CACHE_FILE, USED_SYMBOLS_FILE]:
-        if os.path.exists(f):
-            os.remove(f)
+EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
+ANALYSIS_LOG = []
+SIGNAL_TRACKER_FILE = "signal_tracker.json"
 
-def load_used_symbols():
-    if os.path.exists(USED_SYMBOLS_FILE):
-        with open(USED_SYMBOLS_FILE, "r") as f:
+
+def reset_signal_tracker():
+    with open(SIGNAL_TRACKER_FILE, "w") as f:
+        json.dump({"current_index": 0}, f)
+
+
+def load_signal_tracker():
+    if os.path.exists(SIGNAL_TRACKER_FILE):
+        with open(SIGNAL_TRACKER_FILE, "r") as f:
             return json.load(f)
-    return []
+    return {"current_index": 0}
 
-def save_used_symbol(symbol):
-    used = load_used_symbols()
-    if symbol not in used:
-        used.append(symbol)
-    with open(USED_SYMBOLS_FILE, "w") as f:
-        json.dump(used[-MAX_SIGNAL_CACHE:], f)
 
-def load_cached_signals():
-    if os.path.exists(SIGNAL_CACHE_FILE):
-        with open(SIGNAL_CACHE_FILE, "r") as f:
-            return json.load(f)
-    return []
+def save_signal_tracker(index):
+    with open(SIGNAL_TRACKER_FILE, "w") as f:
+        json.dump({"current_index": index}, f)
 
-def get_next_top_signal():
-    signals = load_cached_signals()
-    used = load_used_symbols()
-    for signal in signals:
-        if signal["symbol"] not in used:
-            save_used_symbol(signal["symbol"])
-            return signal
-    return None
 
-async def ensure_top_signals_available():
-    signals = load_cached_signals()
-    used = load_used_symbols()
-    unused = [s for s in signals if s["symbol"] not in used]
+def evaluate_coin(coin):
+    rsi = coin.get("rsi", 0)
+    ma7 = coin.get("ma7", 0)
+    price = coin.get("current_price", 0)
+    change_24h = coin.get("price_change_percentage_24h", 0)
+    volume = coin.get("total_volume", 0)
+    symbol = coin.get("symbol", "?").upper()
 
-    if not signals or not unused:
-        print("♻️ Обновление кеша: кеш пуст или все сигналы использованы")
-        top_signals = await analyze_cryptos()
-        if not top_signals:
-            print("⛔ Строгий фильтр не дал результатов — fallback-анализ...")
-            top_signals = await analyze_cryptos(fallback=True)
-            for s in top_signals:
-                s["fallback"] = True
-        else:
-            for s in top_signals:
-                s["fallback"] = False
-        with open(SIGNAL_CACHE_FILE, "w") as f:
-            json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
-        with open(USED_SYMBOLS_FILE, "w") as f:
-            json.dump([], f)
+    reasons = []
+    score = 0
 
-async def refresh_signal_cache_job(app: Application):
-    signals = load_cached_signals()
-    used = load_used_symbols()
-    unused = [s for s in signals if s["symbol"] not in used]
-
-    if not unused:
-        print("♻️ Автообновление кеша сигналов...")
-        top_signals = await analyze_cryptos()
-        if not top_signals:
-            print("⛔ Fallback-анализ при автообновлении...")
-            top_signals = await analyze_cryptos(fallback=True)
-            for s in top_signals:
-                s["fallback"] = True
-        else:
-            for s in top_signals:
-                s["fallback"] = False
-        with open(SIGNAL_CACHE_FILE, "w") as f:
-            json.dump(top_signals[:MAX_SIGNAL_CACHE], f)
-        with open(USED_SYMBOLS_FILE, "w") as f:
-            json.dump([], f)
-        print("✅ Кеш сигналов обновлён.")
+    if 50 <= rsi <= 60:
+        score += 1
     else:
-        print("🟢 Кеш сигналов актуален — обновление не требуется.")
+        reasons.append(f"RSI {rsi} вне диапазона 50–60")
 
-def fnum(x):
-    return f"{x:.2f}".rstrip('0').rstrip('.') if '.' in f"{x:.2f}" else f"{x:.2f}"
-
-async def send_signal_message(user_id, context):
-    await ensure_top_signals_available()
-    signal = get_next_top_signal()
-
-    if not signal:
-        await context.bot.send_message(chat_id=user_id, text="Нет подходящих сигналов на текущий момент.")
-        return
-
-    price = float(signal.get("current_price", 0))
-    target_price = round(price * 1.05, 6)
-    stop_price = round(price * 0.97, 6)
-    change_24h = float(signal.get("price_change_percentage_24h", 0))
-    probability = signal.get("probability", "?")
-    fallback_note = "\n⚠️ Сигнал из резервного режима (упрощённый фильтр)" if signal.get("fallback") else ""
-
-    message = (
-        f"*🚀 Сигнал на покупку: {signal['symbol']}*\n\n"
-        f"*Цена входа:* ${fnum(price)}\n"
-        f"*Цель:* +5% → ${fnum(target_price)}\n"
-        f"*Стоп-лосс:* -3% → ${fnum(stop_price)}\n"
-        f"*Изменение за 24ч:* {fnum(change_24h)}%\n"
-        f"*Вероятность роста:* {probability}%\n"
-        f"{fallback_note}"
-    )
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track_{signal['symbol']}")]
-    ])
-    await context.bot.send_message(chat_id=user_id, text=message, reply_markup=keyboard, parse_mode="Markdown")
-
-def schedule_daily_signal_check(app, owner_id):
-    scheduler = BackgroundScheduler(timezone="Europe/Moscow")
-
-    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(
-        send_signal_message(owner_id, app), app.loop
-    ), trigger='cron', hour=8, minute=0, id='daily_signal')
-
-    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(
-        refresh_signal_cache_job(app), app.loop
-    ), trigger='interval', hours=3, id='refresh_signal_cache')
-
-    scheduler.start()
-
-async def debug_cache_message(user_id, context):
-    cached = load_cached_signals()
-    used = load_used_symbols()
-    cached_symbols = [c["symbol"] for c in cached]
-    unused = [s for s in cached_symbols if s not in used]
-
-    msg = f"*📦 Кеш сигналов:*\n"
-    msg += f"Всего в кеше: {len(cached_symbols)} монет\n"
-    msg += f"Использованы: {', '.join(used) if used else '—'}\n"
-    msg += f"Остались: {', '.join(unused) if unused else '—'}"
-
-    await context.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
-
-async def debug_analysis_message(user_id, context):
-    if not ANALYSIS_LOG:
-        await context.bot.send_message(chat_id=user_id, text="⏳ Анализ ещё не выполнялся.")
+    if price >= ma7:
+        score += 1
     else:
-        msg = "*📊 Отладка анализа монет:*\n\n" + "\n".join(ANALYSIS_LOG[-50:])
-        await context.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
+        reasons.append(f"Цена ${price} ниже MA7 ${ma7}")
+
+    if change_24h > 2:
+        score += 1
+    else:
+        reasons.append(f"Изменение за 24ч {change_24h}% недостаточно")
+
+    if 5_000_000 <= volume <= 200_000_000:
+        score += 1
+    else:
+        reasons.append(f"Объём {volume} вне диапазона 5M–200M")
+
+    rsi_weight = 0
+    if 50 <= rsi <= 60:
+        rsi_weight = 1
+    elif 48 <= rsi < 50 or 60 < rsi <= 62:
+        rsi_weight = 0.5
+
+    ma_weight = 1 if price >= ma7 else 0
+    change_weight = min(change_24h / 5, 1)
+    volume_weight = 1 if 5_000_000 <= volume <= 200_000_000 else 0
+
+    prob = 50 + (rsi_weight + ma_weight + change_weight + volume_weight) * 11.25
+    prob = round(min(prob, 95), 2)
+
+    if score > 0:
+        ANALYSIS_LOG.append(f"✅ {symbol}: score={score}, prob={prob}%")
+    else:
+        ANALYSIS_LOG.append(f"❌ {symbol}: отклонено — {', '.join(reasons)}")
+
+    return score, prob
+
+
+async def analyze_cryptos(fallback=False):
+    global ANALYSIS_LOG
+    ANALYSIS_LOG.clear()
+
+    reset_signal_tracker()
+
+    coin_ids = TELEGRAM_WALLET_COIN_IDS if isinstance(TELEGRAM_WALLET_COIN_IDS, list) else list(TELEGRAM_WALLET_COIN_IDS.keys())
+    all_data = await get_all_coin_data(coin_ids)
+
+    candidates = []
+
+    for coin in all_data:
+        if coin.get("id") in EXCLUDE_IDS:
+            continue
+        score, prob = evaluate_coin(coin)
+        if score > 0:
+            coin["score"] = score
+            coin["probability"] = prob
+            candidates.append(coin)
+
+    candidates.sort(key=lambda x: (x["probability"], x["price_change_percentage_24h"]), reverse=True)
+
+    top_signals = []
+    for coin in candidates[:6]:
+        signal = {
+            "id": coin["id"],
+            "symbol": coin["symbol"],
+            "current_price": float(coin["current_price"]),
+            "price_change_percentage_24h": round(coin.get("price_change_percentage_24h", 0), 2),
+            "probability": coin["probability"]
+        }
+        top_signals.append(signal)
+
+    if not top_signals:
+        logger.info("⚠️ Нет подходящих монет вообще.")
+
+    return top_signals
