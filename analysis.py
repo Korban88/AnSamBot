@@ -18,41 +18,36 @@ def evaluate_coin(coin):
     reasons = []
     score = 0
 
-    if 50 <= rsi <= 60:
+    if 52 <= rsi <= 60:
         score += 1
     else:
-        reasons.append(f"RSI {rsi} вне диапазона 50–60")
+        reasons.append(f"RSI {rsi} вне диапазона 52–60")
 
-    if price >= ma7:
+    if price > ma7:
         score += 1
     else:
         reasons.append(f"Цена ${price} ниже MA7 ${ma7}")
 
-    if change_24h > 2:
+    if change_24h >= 2.5:
         score += 1
     else:
         reasons.append(f"Изменение за 24ч {change_24h}% недостаточно")
 
-    if 5_000_000 <= volume <= 200_000_000:
+    if 5_000_000 <= volume <= 100_000_000:
         score += 1
     else:
-        reasons.append(f"Объём {volume} вне диапазона 5M–200M")
+        reasons.append(f"Объём {volume} вне диапазона 5M–100M")
 
     # Улучшенный расчёт вероятности
-    rsi_weight = 0
-    if 50 <= rsi <= 60:
-        rsi_weight = 1
-    elif 48 <= rsi < 50 or 60 < rsi <= 62:
-        rsi_weight = 0.5
-
-    ma_weight = 1 if price >= ma7 else 0
+    rsi_weight = 1 if 52 <= rsi <= 60 else 0
+    ma_weight = 1 if price > ma7 else 0
     change_weight = min(change_24h / 5, 1)
-    volume_weight = 1 if 5_000_000 <= volume <= 200_000_000 else 0
+    volume_weight = 1 if 5_000_000 <= volume <= 100_000_000 else 0
 
     prob = 50 + (rsi_weight + ma_weight + change_weight + volume_weight) * 11.25
     prob = round(min(prob, 95), 2)
 
-    if score > 0:
+    if score >= 4:
         ANALYSIS_LOG.append(f"✅ {symbol}: score={score}, prob={prob}%")
     else:
         ANALYSIS_LOG.append(f"❌ {symbol}: отклонено — {', '.join(reasons)}")
@@ -73,7 +68,7 @@ async def analyze_cryptos(fallback=False):
         if coin.get("id") in EXCLUDE_IDS:
             continue
         score, prob = evaluate_coin(coin)
-        if score > 0:
+        if score >= 4:
             coin["score"] = score
             coin["probability"] = prob
             candidates.append(coin)
@@ -85,7 +80,7 @@ async def analyze_cryptos(fallback=False):
         signal = {
             "id": coin["id"],
             "symbol": coin["symbol"],
-            "current_price": coin["current_price"],  # float
+            "current_price": coin["current_price"],
             "price_change_percentage_24h": round(coin.get("price_change_percentage_24h", 0), 2),
             "probability": coin["probability"]
         }
