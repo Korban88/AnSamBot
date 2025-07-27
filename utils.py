@@ -1,19 +1,22 @@
 import json
 import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
-from analysis import analyze_cryptos
-from config import OWNER_ID
+from apscheduler.schedulers.background import BackgroundScheduler
+from analysis import analyze_cryptos, ANALYSIS_LOG
+from telegram.ext import Application
+import logging
 
-SIGNAL_CACHE_FILE = "top_signals_cache.json"
 USED_SYMBOLS_FILE = "used_symbols.json"
-SIGNAL_TRACKER_FILE = "signal_tracker.json"
+SIGNAL_CACHE_FILE = "top_signals_cache.json"
+
+logger = logging.getLogger(__name__)
 
 
 def reset_cache():
-    for file in [SIGNAL_CACHE_FILE, USED_SYMBOLS_FILE, SIGNAL_TRACKER_FILE]:
-        if os.path.exists(file):
-            os.remove(file)
+    if os.path.exists(SIGNAL_CACHE_FILE):
+        os.remove(SIGNAL_CACHE_FILE)
+    if os.path.exists(USED_SYMBOLS_FILE):
+        os.remove(USED_SYMBOLS_FILE)
 
 
 def load_used_symbols():
@@ -27,7 +30,7 @@ def save_used_symbol(symbol):
     used = load_used_symbols()
     used.append(symbol)
     with open(USED_SYMBOLS_FILE, "w") as f:
-        json.dump(used[-6:], f)  # храним только последние 6
+        json.dump(used, f)
 
 
 def load_signal_cache():
@@ -42,70 +45,80 @@ def save_signal_cache(signals):
         json.dump(signals, f)
 
 
-def get_next_signal():
-    signals = load_signal_cache()
-    if not signals:
-        return None
+async def refresh_signal_cache():
+    top_signals = await analyze_cryptos()
+    save_signal_cache(top_signals)
+    logger.info("♻️ Кэш сигналов обновлён.")
 
-    index = 0
-    if os.path.exists(SIGNAL_TRACKER_FILE):
-        with open(SIGNAL_TRACKER_FILE, "r") as f:
-            index = json.load(f).get("index", 0)
 
-    if index >= len(signals):
-        return None
-
-    next_signal = signals[index]
-
-    with open(SIGNAL_TRACKER_FILE, "w") as f:
-        json.dump({"index": index + 1}, f)
-
-    return next_signal
+def schedule_daily_signal_check(app: Application):
+    scheduler = BackgroundScheduler(timezone="Europe/Moscow")
+    scheduler.add_job(
+        lambda: app.create_task(refresh_signal_cache()),
+        trigger="cron",
+        hour=8,
+        minute=0,
+        id="daily_signal_check"
+    )
+    scheduler.start()
 
 
 async def send_signal_message(user_id, context):
-    signal = get_next_signal()
+    signals = load_signal_cache()
+    used = load_used_symbols()
 
-    if not signal:
-        await context.bot.send_message(chat_id=user_id, text="Нет подходящих сигналов.")
+    for signal in signals:
+        if signal["symbol"] in used:
+            continue
+
+        save_used_symbol(signal["symbol"])
+
+        price_str = str(signal["current_price"]).replace("$", "").replace(",", "")
+        try:
+            price = float(price_str)
+        except ValueError:
+            price = 0.0
+
+        target_price = round(price * 1.05, 4)
+        stop_loss = round(price * 0.97, 4)
+
+        msg = (
+            f"*💰 Сигнал на покупку: {signal['symbol'].upper()}*\n"
+            f"Текущая цена: ${price}\n"
+            f"Цель +5%: ${target_price}\n"
+            f"Стоп-лосс: ${stop_loss}\n"
+            f"Изменение за 24ч: {signal['price_change_percentage_24h']}%\n"
+            f"Вероятность роста: *{signal['probability']}%*"
+        )
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track:{signal['id']}")]
+        ])
+
+        await context.bot.send_message(chat_id=user_id, text=msg, reply_markup=keyboard, parse_mode="Markdown")
+
         return
 
-    symbol = signal.get("symbol", "?").upper()
-    price = float(str(signal.get("current_price", 0)).replace("$", ""))
-    target = round(price * 1.05, 4)
-    stop_loss = round(price * 0.97, 4)
-    change = signal.get("price_change_percentage_24h", 0)
-    prob = signal.get("probability", 0)
+    await context.bot.send_message(chat_id=user_id, text="⚠️ Нет подходящих сигналов.")
 
-    text = (
-        f"📈 *Сигнал по монете {symbol}*\n"
-        f"Текущая цена: ${price}\n"
-        f"Цель: ${target} (+5%)\n"
-        f"Стоп-лосс: ${stop_loss} (-3%)\n"
-        f"Изменение за 24ч: {change}%\n"
-        f"Вероятность роста: *{prob}%*"
-    )
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔔 Следить за монетой", callback_data=f"track:{symbol}")]
-    ])
+async def send_signal_cache(user_id, context):
+    signals = load_signal_cache()
+    if not signals:
+        await context.bot.send_message(chat_id=user_id, text="⚠️ Кэш сигналов пуст.")
+        return
 
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=text,
-        reply_markup=keyboard,
-        parse_mode=ParseMode.MARKDOWN
-    )
+    text = "*Кэш сигналов:*\n"
+    for s in signals:
+        text += f"— {s['symbol'].upper()} | Цена: ${s['current_price']} | +24ч: {s['price_change_percentage_24h']}% | Вероятность: {s['probability']}%\n"
+
+    await context.bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
 
 
 async def send_analysis_log(user_id, context):
-    from analysis import ANALYSIS_LOG
-
     if not ANALYSIS_LOG:
-        await context.bot.send_message(chat_id=user_id, text="Лог анализа пока пуст.")
+        await context.bot.send_message(chat_id=user_id, text="Лог анализа пуст.")
         return
 
     log_text = "\n".join(ANALYSIS_LOG)
-    await context.bot.send_message(chat_id=user_id, text=f"*Анализ монет:*
-
-{log_text}", parse_mode=ParseMode.MARKDOWN)
+    await context.bot.send_message(chat_id=user_id, text=f"*Анализ монет:*\n{log_text}", parse_mode="MarkdownV2")
