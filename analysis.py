@@ -18,37 +18,37 @@ def evaluate_coin(coin):
     reasons = []
     score = 0
 
-    # Ослабленные фильтры
-    if 45 <= rsi <= 70:
+    # 🔹 Временно ослабленный фильтр
+    if 45 <= rsi <= 65:
         score += 1
     else:
-        reasons.append(f"RSI {rsi} вне диапазона 45–70")
+        reasons.append(f"RSI {rsi} вне диапазона 45–65")
 
     if price > ma7:
         score += 1
     else:
         reasons.append(f"Цена ${price} ниже MA7 ${ma7}")
 
-    if change_24h >= 1.0:
+    if change_24h >= 1.5:
         score += 1
     else:
         reasons.append(f"Изменение за 24ч {change_24h}% недостаточно")
 
-    if 1_000_000 <= volume <= 500_000_000:
+    if volume >= 1_000_000:
         score += 1
     else:
-        reasons.append(f"Объём {volume} вне диапазона 1M–500M")
+        reasons.append(f"Объём {volume} меньше 1M")
 
-    # Обновлённый расчёт вероятности
-    rsi_weight = 1 if 45 <= rsi <= 70 else 0
+    # Расчёт вероятности роста
+    rsi_weight = 1 if 45 <= rsi <= 65 else 0
     ma_weight = 1 if price > ma7 else 0
     change_weight = min(change_24h / 5, 1)
-    volume_weight = 1 if 1_000_000 <= volume <= 500_000_000 else 0
+    volume_weight = 1 if volume >= 1_000_000 else 0
 
     prob = 50 + (rsi_weight + ma_weight + change_weight + volume_weight) * 11.25
     prob = round(min(prob, 95), 2)
 
-    if score >= 4:
+    if score >= 3:
         ANALYSIS_LOG.append(f"✅ {symbol}: score={score}, prob={prob}%")
     else:
         ANALYSIS_LOG.append(f"❌ {symbol}: отклонено — {', '.join(reasons)}")
@@ -60,8 +60,12 @@ async def analyze_cryptos(fallback=False):
     global ANALYSIS_LOG
     ANALYSIS_LOG.clear()
 
-    coin_ids = TELEGRAM_WALLET_COIN_IDS if isinstance(TELEGRAM_WALLET_COIN_IDS, list) else list(TELEGRAM_WALLET_COIN_IDS.keys())
-    all_data = await get_all_coin_data(coin_ids)
+    try:
+        coin_ids = TELEGRAM_WALLET_COIN_IDS if isinstance(TELEGRAM_WALLET_COIN_IDS, list) else list(TELEGRAM_WALLET_COIN_IDS.keys())
+        all_data = await get_all_coin_data(coin_ids)
+    except Exception as e:
+        logger.error(f"Ошибка при получении данных: {e}")
+        return []
 
     candidates = []
 
@@ -69,7 +73,7 @@ async def analyze_cryptos(fallback=False):
         if coin.get("id") in EXCLUDE_IDS:
             continue
         score, prob = evaluate_coin(coin)
-        if score >= 4:
+        if score >= 3:
             coin["score"] = score
             coin["probability"] = prob
             candidates.append(coin)
@@ -88,6 +92,6 @@ async def analyze_cryptos(fallback=False):
         top_signals.append(signal)
 
     if not top_signals:
-        logger.info("⚠️ Нет подходящих монет вообще.")
+        logger.warning("⚠️ Нет подходящих монет (심지어 после упрощения фильтра).")
 
     return top_signals
