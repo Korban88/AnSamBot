@@ -42,7 +42,7 @@ def save_signal_cache(signals):
     with open(SIGNAL_CACHE_FILE, "w") as f:
         json.dump(signals, f)
 
-# Планировщик сигнала
+# Планировщик сигнала (ежедневно в 8:00)
 def schedule_daily_signal_check(app: Application, user_id: int):
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
     scheduler.add_job(lambda: app.create_task(send_daily_signal(user_id, app)), "cron", hour=8, minute=0)
@@ -75,8 +75,8 @@ async def send_signal_message(user_id, context):
         f"• Цена входа: *${price}*\n"
         f"• Цель: *+5% ➜ ${target_price}*\n"
         f"• Стоп-лосс: *${stop_loss}*\n"
-        f"• Вероятность роста: *{probability}%*\n"
-        f"• Изменение за 24ч: *{change_24h}%*"
+        f"• Изменение за 24ч: *{change_24h}%*\n"
+        f"• Вероятность роста: *{probability}%*"
     )
 
     keyboard = InlineKeyboardMarkup([
