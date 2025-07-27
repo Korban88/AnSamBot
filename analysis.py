@@ -13,6 +13,7 @@ def evaluate_coin(coin):
     ma7 = coin.get("ma7", 0)
     price = coin.get("current_price", 0)
     change_24h = coin.get("price_change_percentage_24h", 0)
+    volume = coin.get("total_volume", 0)
     symbol = coin.get("symbol", "?").upper()
 
     reasons = []
@@ -33,6 +34,11 @@ def evaluate_coin(coin):
     else:
         reasons.append(f"Изменение за 24ч {change_24h}% недостаточно")
 
+    if 5_000_000 <= volume <= 200_000_000:
+        score += 1
+    else:
+        reasons.append(f"Объём {volume} вне диапазона 5M–200M")
+
     # Улучшенный расчёт вероятности
     rsi_weight = 0
     if 50 <= rsi <= 60:
@@ -42,8 +48,9 @@ def evaluate_coin(coin):
 
     ma_weight = 1 if price >= ma7 else 0
     change_weight = min(change_24h / 5, 1)  # максимум +1 балл за рост >5%
+    volume_weight = 1 if 5_000_000 <= volume <= 200_000_000 else 0
 
-    prob = 50 + (rsi_weight + ma_weight + change_weight) * 15
+    prob = 50 + (rsi_weight + ma_weight + change_weight + volume_weight) * 11.25
     prob = round(min(prob, 95), 2)
 
     if score > 0:
