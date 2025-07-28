@@ -14,7 +14,6 @@ def safe_float(value):
         return 0.0
 
 def normalize_coin(coin):
-    """Приводим все числовые значения к float, чтобы не было None."""
     return {
         "id": coin.get("id"),
         "symbol": coin.get("symbol", "?"),
@@ -75,6 +74,7 @@ async def analyze_cryptos(fallback=False):
     try:
         coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
         all_data = await get_all_coin_data(coin_ids)
+        logger.info(f"Получено {len(all_data)} монет с CoinGecko")
     except Exception as e:
         logger.error(f"Ошибка при получении данных: {e}")
         return []
@@ -83,12 +83,16 @@ async def analyze_cryptos(fallback=False):
     for raw_coin in all_data:
         if raw_coin.get("id") in EXCLUDE_IDS:
             continue
+
         coin = normalize_coin(raw_coin)
         score, prob = evaluate_coin(coin)
+
         if score >= 3:
             coin["score"] = score
             coin["probability"] = prob
             candidates.append(coin)
+
+    logger.info(f"Отобрано {len(candidates)} монет из {len(all_data)}")
 
     candidates.sort(
         key=lambda x: (safe_float(x.get("probability")), safe_float(x.get("price_change_percentage_24h"))),
