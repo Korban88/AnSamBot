@@ -18,7 +18,7 @@ def safe_float(value, default=0.0):
 def normalize_coin(raw_coin):
     if not raw_coin or "id" not in raw_coin:
         return None
-    return {
+    norm = {
         "id": raw_coin.get("id", ""),
         "symbol": raw_coin.get("symbol", "?"),
         "rsi": safe_float(raw_coin.get("rsi")),
@@ -27,6 +27,10 @@ def normalize_coin(raw_coin):
         "price_change_percentage_24h": safe_float(raw_coin.get("price_change_percentage_24h")),
         "total_volume": safe_float(raw_coin.get("total_volume")),
     }
+    if norm["current_price"] == 0:
+        logger.warning(f"⚠️ Нет цены для монеты: {norm['id']} ({norm['symbol']})")
+        ANALYSIS_LOG.append(f"⚠️ {norm['symbol'].upper()} — нет данных с CoinGecko")
+    return norm
 
 
 def evaluate_coin(coin):
@@ -84,8 +88,6 @@ async def analyze_cryptos(fallback=False):
             norm = normalize_coin(c)
             if norm:
                 all_data.append(norm)
-            else:
-                logger.warning(f"⚠️ Пропущена монета: данные отсутствуют или некорректны {c}")
     except Exception as e:
         logger.error(f"Ошибка при получении данных: {e}")
         return []
