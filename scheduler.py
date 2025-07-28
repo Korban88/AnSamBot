@@ -2,10 +2,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from analysis import analyze_cryptos
 from utils import save_signal_cache
 import logging
-from asyncio import create_task
+import asyncio
 
 def schedule_signal_refresh():
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
+    loop = asyncio.get_event_loop()
 
     async def refresh_signal_cache():
         try:
@@ -15,5 +16,8 @@ def schedule_signal_refresh():
         except Exception as e:
             logging.error(f"Ошибка при автообновлении сигналов: {e}")
 
-    scheduler.add_job(lambda: create_task(refresh_signal_cache()), "interval", hours=3)
+    scheduler.add_job(
+        lambda: asyncio.run_coroutine_threadsafe(refresh_signal_cache(), loop),
+        "interval", hours=3
+    )
     scheduler.start()
