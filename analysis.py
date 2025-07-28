@@ -16,7 +16,8 @@ def safe_float(value):
 
 
 def normalize_coin(raw_coin):
-    """Гарантирует, что все ключи имеют float вместо None."""
+    if not raw_coin or "id" not in raw_coin:
+        return None
     return {
         "id": raw_coin.get("id", ""),
         "symbol": raw_coin.get("symbol", "?"),
@@ -59,12 +60,7 @@ def evaluate_coin(coin):
     else:
         reasons.append(f"Объём {volume} меньше 1M")
 
-    rsi_weight = 1 if 45 <= rsi <= 65 else 0
-    ma_weight = 1 if price > ma7 else 0
-    change_weight = min(change_24h / 5, 1)
-    volume_weight = 1 if volume >= 1_000_000 else 0
-
-    prob = 50 + (rsi_weight + ma_weight + change_weight + volume_weight) * 11.25
+    prob = 50 + (min(score, 4)) * 11.25
     prob = round(min(prob, 95), 2)
 
     if score >= 3:
@@ -82,8 +78,15 @@ async def analyze_cryptos(fallback=False):
     try:
         coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
         raw_data = await get_all_coin_data(coin_ids)
-        all_data = [normalize_coin(c) for c in raw_data]  # <-- Жёсткая нормализация здесь
-        logger.info(f"Получено {len(all_data)} монет с CoinGecko")
+
+        # Отсеиваем монеты без данных
+        all_data = []
+        for c in raw_data:
+            norm = normalize_coin(c)
+            if norm:
+                all_data.append(norm)
+            else:
+                logger.warning(f"Монета не найдена на CoinGecko: {c}")
     except Exception as e:
         logger.error(f"Ошибка при получении данных: {e}")
         return []
@@ -99,25 +102,16 @@ async def analyze_cryptos(fallback=False):
             coin["probability"] = prob
             candidates.append(coin)
 
-    logger.info(f"Отобрано {len(candidates)} монет из {len(all_data)}")
+    candidates.sort(key=lambda x: (x["probability"], x["price_change_percentage_24h"]), reverse=True)
 
-    candidates.sort(
-        key=lambda x: (x.get("probability", 0), x.get("price_change_percentage_24h", 0)),
-        reverse=True,
-    )
+    top_signals = [{
+        "id": c["id"],
+        "symbol": c["symbol"],
+        "current_price": c["current_price"],
+        "price_change_percentage_24h": round(c["price_change_percentage_24h"], 2),
+        "probability": c["probability"]
+    } for c in candidates[:6]]
 
-    top_signals = [
-        {
-            "id": c["id"],
-            "symbol": c["symbol"],
-            "current_price": c["current_price"],
-            "price_change_percentage_24h": round(c["price_change_percentage_24h"], 2),
-            "probability": c["probability"],
-        }
-        for c in candidates[:6]
-    ]
-
-    # Fallback: если нет сигналов, возьмём топ-1 по росту за 24ч
     if not top_signals and fallback and all_data:
         best = max(all_data, key=lambda x: x.get("price_change_percentage_24h", 0))
         top_signals = [{
@@ -125,11 +119,11 @@ async def analyze_cryptos(fallback=False):
             "symbol": best["symbol"],
             "current_price": best["current_price"],
             "price_change_percentage_24h": round(best["price_change_percentage_24h"], 2),
-            "probability": 55.0  # минимальная вероятность fallback
+            "probability": 55.0
         }]
         ANALYSIS_LOG.append(f"⚠️ {best['symbol'].upper()} выбран в fallback-режиме")
 
     if not top_signals:
-        logger.warning("⚠️ Нет подходящих монет даже после упрощённого фильтра.")
+        logger.warning("⚠️ Нет подходящих монет даже после fallback.")
 
     return top_signals
