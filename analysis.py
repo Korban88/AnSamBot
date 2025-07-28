@@ -26,28 +26,33 @@ def evaluate_coin(coin):
     reasons = []
     score = 0
 
-    if 45 <= rsi <= 65:
+    # RSI check
+    if rsi > 0 and 45 <= rsi <= 65:
         score += 1
     else:
-        reasons.append(f"RSI {rsi} вне диапазона 45–65")
+        reasons.append(f"RSI {rsi} вне диапазона 45–65 или отсутствует")
 
-    if price > ma7 > 0:
+    # MA7 check
+    if ma7 > 0 and price > ma7:
         score += 1
     else:
-        reasons.append(f"Цена ${price} ниже MA7 ${ma7}")
+        reasons.append(f"Цена ${price} ниже или нет MA7 ${ma7}")
 
+    # Change 24h check
     if change_24h >= 1.5:
         score += 1
     else:
         reasons.append(f"Изменение за 24ч {change_24h}% недостаточно")
 
+    # Volume check
     if volume >= 1_000_000:
         score += 1
     else:
-        reasons.append(f"Объём {volume} меньше 1M")
+        reasons.append(f"Объём {volume} меньше 1M или отсутствует")
 
-    rsi_weight = 1 if 45 <= rsi <= 65 else 0
-    ma_weight = 1 if price > ma7 > 0 else 0
+    # Probability calculation
+    rsi_weight = 1 if rsi > 0 and 45 <= rsi <= 65 else 0
+    ma_weight = 1 if ma7 > 0 and price > ma7 else 0
     change_weight = min(change_24h / 5, 1) if change_24h > 0 else 0
     volume_weight = 1 if volume >= 1_000_000 else 0
 
@@ -60,6 +65,7 @@ def evaluate_coin(coin):
         ANALYSIS_LOG.append(f"❌ {symbol}: отклонено — {', '.join(reasons)}")
 
     return score, prob
+
 
 async def analyze_cryptos(fallback=False):
     global ANALYSIS_LOG
