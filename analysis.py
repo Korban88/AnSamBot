@@ -7,11 +7,13 @@ logger = logging.getLogger(__name__)
 EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
 ANALYSIS_LOG = []
 
+
 def safe_float(value):
     try:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
 
 def normalize_coin(raw_coin):
     """Гарантирует, что все ключи имеют float вместо None."""
@@ -24,6 +26,7 @@ def normalize_coin(raw_coin):
         "price_change_percentage_24h": safe_float(raw_coin.get("price_change_percentage_24h")),
         "total_volume": safe_float(raw_coin.get("total_volume")),
     }
+
 
 def evaluate_coin(coin):
     rsi = coin["rsi"]
@@ -71,24 +74,25 @@ def evaluate_coin(coin):
 
     return score, prob
 
+
 async def analyze_cryptos(fallback=False):
     global ANALYSIS_LOG
     ANALYSIS_LOG.clear()
 
     try:
         coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
-        all_data = await get_all_coin_data(coin_ids)
+        raw_data = await get_all_coin_data(coin_ids)
+        all_data = [normalize_coin(c) for c in raw_data]  # <-- Жёсткая нормализация здесь
         logger.info(f"Получено {len(all_data)} монет с CoinGecko")
     except Exception as e:
         logger.error(f"Ошибка при получении данных: {e}")
         return []
 
     candidates = []
-    for raw_coin in all_data:
-        if raw_coin.get("id") in EXCLUDE_IDS:
+    for coin in all_data:
+        if coin["id"] in EXCLUDE_IDS:
             continue
 
-        coin = normalize_coin(raw_coin)
         score, prob = evaluate_coin(coin)
         if score >= 3:
             coin["score"] = score
@@ -98,7 +102,7 @@ async def analyze_cryptos(fallback=False):
     logger.info(f"Отобрано {len(candidates)} монет из {len(all_data)}")
 
     candidates.sort(
-        key=lambda x: (safe_float(x.get("probability")), safe_float(x.get("price_change_percentage_24h"))),
+        key=lambda x: (x.get("probability", 0), x.get("price_change_percentage_24h", 0)),
         reverse=True,
     )
 
@@ -112,6 +116,18 @@ async def analyze_cryptos(fallback=False):
         }
         for c in candidates[:6]
     ]
+
+    # Fallback: если нет сигналов, возьмём топ-1 по росту за 24ч
+    if not top_signals and fallback and all_data:
+        best = max(all_data, key=lambda x: x.get("price_change_percentage_24h", 0))
+        top_signals = [{
+            "id": best["id"],
+            "symbol": best["symbol"],
+            "current_price": best["current_price"],
+            "price_change_percentage_24h": round(best["price_change_percentage_24h"], 2),
+            "probability": 55.0  # минимальная вероятность fallback
+        }]
+        ANALYSIS_LOG.append(f"⚠️ {best['symbol'].upper()} выбран в fallback-режиме")
 
     if not top_signals:
         logger.warning("⚠️ Нет подходящих монет даже после упрощённого фильтра.")
