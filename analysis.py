@@ -8,11 +8,11 @@ EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
 ANALYSIS_LOG = []
 
 
-def safe_float(value):
+def safe_float(value, default=0.0):
     try:
         return float(value)
     except (TypeError, ValueError):
-        return 0.0
+        return default
 
 
 def normalize_coin(raw_coin):
@@ -79,14 +79,13 @@ async def analyze_cryptos(fallback=False):
         coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
         raw_data = await get_all_coin_data(coin_ids)
 
-        # Отсеиваем монеты без данных
         all_data = []
         for c in raw_data:
             norm = normalize_coin(c)
             if norm:
                 all_data.append(norm)
             else:
-                logger.warning(f"Монета не найдена на CoinGecko: {c}")
+                logger.warning(f"⚠️ Пропущена монета: данные отсутствуют или некорректны {c}")
     except Exception as e:
         logger.error(f"Ошибка при получении данных: {e}")
         return []
