@@ -16,6 +16,15 @@ def save_cache():
     with open(CACHE_PATH, "w") as f:
         json.dump(INDICATOR_CACHE, f)
 
+def safe_float(value, default=0.0):
+    """Безопасное преобразование в float"""
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
 def simulate_rsi(price_change):
     """Грубая симуляция RSI на основе 24h изменений"""
     import random
@@ -34,7 +43,7 @@ def simulate_ma7(current_price):
     """Симулируем MA7 немного ниже текущей цены"""
     import random
     variation = random.uniform(-0.03, 0.03)
-    return round(current_price * (1 - variation), 4)
+    return round(safe_float(current_price) * (1 - variation), 4)
 
 def calculate_ma7(prices):
     """Реальный MA7 — скользящее среднее за 7 дней"""
@@ -64,9 +73,7 @@ def calculate_rsi(prices):
     return round(rsi, 2)
 
 async def fetch_historical_prices(coin_id, days=8):
-    """
-    Получает исторические цены монеты за N дней (для RSI и MA7)
-    """
+    """Получает исторические цены монеты за N дней (для RSI и MA7)"""
     url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
     params = {
         "vs_currency": "usd",
@@ -77,7 +84,7 @@ async def fetch_historical_prices(coin_id, days=8):
         async with session.get(url, params=params) as response:
             if response.status == 200:
                 data = await response.json()
-                return [price[1] for price in data.get("prices", [])]
+                return [safe_float(price[1]) for price in data.get("prices", [])]
             return []
 
 async def fetch_all_coin_data(coin_ids):
@@ -95,37 +102,39 @@ async def fetch_all_coin_data(coin_ids):
                 return []
 
 async def get_all_coin_data(coin_ids):
-    """
-    Получает данные по монетам и дополняет их RSI и MA7 (с кешем и fallback-логикой)
-    """
+    """Получает данные по монетам и дополняет их RSI и MA7 (с кешем и fallback-логикой)"""
     raw_data = await fetch_all_coin_data(coin_ids)
     result = []
 
     for coin in raw_data:
-        coin_id = coin["id"]
-        current_price = coin.get("current_price")
-        change_24h = coin.get("price_change_percentage_24h", 0)
+        coin_id = coin.get("id", "")
+        current_price = safe_float(coin.get("current_price"))
+        change_24h = safe_float(coin.get("price_change_percentage_24h"))
+        volume = safe_float(coin.get("total_volume"))
 
-        # Проверка кеша
         cached = INDICATOR_CACHE.get(coin_id, {})
         timestamp = cached.get("timestamp")
         now = datetime.utcnow()
         is_fresh = timestamp and (now - datetime.fromisoformat(timestamp)) < timedelta(hours=1)
 
         if is_fresh:
-            coin["rsi"] = cached["rsi"]
-            coin["ma7"] = cached["ma7"]
+            rsi = safe_float(cached.get("rsi"))
+            ma7 = safe_float(cached.get("ma7"))
         else:
             prices = await fetch_historical_prices(coin_id)
             rsi = calculate_rsi(prices) or simulate_rsi(change_24h)
             ma7 = calculate_ma7(prices) or simulate_ma7(current_price)
-            coin["rsi"] = rsi
-            coin["ma7"] = ma7
             INDICATOR_CACHE[coin_id] = {
                 "rsi": rsi,
                 "ma7": ma7,
                 "timestamp": now.isoformat()
             }
+
+        coin["current_price"] = current_price
+        coin["price_change_percentage_24h"] = change_24h
+        coin["total_volume"] = volume
+        coin["rsi"] = rsi
+        coin["ma7"] = ma7
 
         result.append(coin)
 
@@ -133,10 +142,7 @@ async def get_all_coin_data(coin_ids):
     return result
 
 async def get_current_price(symbol):
-    """
-    Получает текущую цену монеты по её символу.
-    Совместима с CoinTracker и tracking.py
-    """
+    """Получает текущую цену монеты по её символу. Совместима с CoinTracker"""
     from crypto_list import TELEGRAM_WALLET_COIN_IDS
 
     coin_id = None
