@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from analysis import analyze_cryptos
 from utils import (
@@ -6,7 +6,8 @@ from utils import (
     reset_cache,
     debug_cache_message,
     debug_analysis_message,
-    save_signal_cache
+    save_signal_cache,
+    manual_refresh_signals
 )
 from tracking import CoinTracker
 
@@ -26,18 +27,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# Команда /analyze — вручную запускает анализ монет и кэширует сигналы
+# Команда /analyze — запускает анализ и обновляет кэш
 async def analyze_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    signals = await analyze_cryptos()
-    save_signal_cache(signals)
-    await update.message.reply_text("🔍 Анализ завершён. Сигналы сохранены в кэш.", reply_markup=reply_markup)
+    await manual_refresh_signals(update.effective_user.id, context)
 
-start_handler = CommandHandler("start", start)
+# Debug команды
 analyze_command_handler = CommandHandler("analyze", analyze_handler)
 debug_handler = CommandHandler("debug_cache", lambda update, context: debug_cache_message(update.effective_user.id, context))
 debug_analysis_handler = CommandHandler("debug_analysis", lambda update, context: debug_analysis_message(update.effective_user.id, context))
+start_handler = CommandHandler("start", start)
 
-# Inline кнопки под сообщением
+# Inline кнопки
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -62,15 +62,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 button_handler = CallbackQueryHandler(button_callback)
 
-# Обработка reply-кнопок
+# Reply кнопки
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     user_id = update.effective_user.id
 
     if "обновить" in text:
-        signals = await analyze_cryptos()
-        save_signal_cache(signals)
-        await update.message.reply_text("♻️ Сигналы обновлены вручную.", reply_markup=reply_markup)
+        await manual_refresh_signals(user_id, context)
     elif "сигнал" in text:
         await send_signal_message(user_id, context)
     elif "стоп" in text or "отмена" in text:
