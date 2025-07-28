@@ -13,13 +13,22 @@ def safe_float(value):
     except (TypeError, ValueError):
         return 0.0
 
+def normalize_coin(coin):
+    """Приводим все числовые значения к float, чтобы не было None."""
+    return {
+        "id": coin.get("id"),
+        "symbol": coin.get("symbol", "?"),
+        "rsi": safe_float(coin.get("rsi")),
+        "ma7": safe_float(coin.get("ma7")),
+        "current_price": safe_float(coin.get("current_price")),
+        "price_change_percentage_24h": safe_float(coin.get("price_change_percentage_24h")),
+        "total_volume": safe_float(coin.get("total_volume")),
+    }
+
 def evaluate_coin(coin):
-    rsi = safe_float(coin.get("rsi"))
-    ma7 = safe_float(coin.get("ma7"))
-    price = safe_float(coin.get("current_price"))
-    change_24h = safe_float(coin.get("price_change_percentage_24h"))
-    volume = safe_float(coin.get("total_volume"))
-    symbol = coin.get("symbol", "?").upper()
+    rsi, ma7, price = coin["rsi"], coin["ma7"], coin["current_price"]
+    change_24h, volume = coin["price_change_percentage_24h"], coin["total_volume"]
+    symbol = coin["symbol"].upper()
 
     reasons = []
     score = 0
@@ -44,7 +53,6 @@ def evaluate_coin(coin):
     else:
         reasons.append(f"Объём {volume} меньше 1M")
 
-    # Расчёт вероятности роста
     rsi_weight = 1 if 45 <= rsi <= 65 else 0
     ma_weight = 1 if price > ma7 else 0
     change_weight = min(change_24h / 5, 1)
@@ -72,35 +80,33 @@ async def analyze_cryptos(fallback=False):
         return []
 
     candidates = []
-
-    for coin in all_data:
-        if coin.get("id") in EXCLUDE_IDS:
+    for raw_coin in all_data:
+        if raw_coin.get("id") in EXCLUDE_IDS:
             continue
-
+        coin = normalize_coin(raw_coin)
         score, prob = evaluate_coin(coin)
         if score >= 3:
             coin["score"] = score
             coin["probability"] = prob
-            coin["price_change_percentage_24h"] = safe_float(coin.get("price_change_percentage_24h"))
             candidates.append(coin)
 
-    candidates.sort(key=lambda x: (
-        safe_float(x.get("probability")),
-        safe_float(x.get("price_change_percentage_24h"))
-    ), reverse=True)
+    candidates.sort(
+        key=lambda x: (safe_float(x.get("probability")), safe_float(x.get("price_change_percentage_24h"))),
+        reverse=True,
+    )
 
-    top_signals = []
-    for coin in candidates[:6]:
-        signal = {
-            "id": coin["id"],
-            "symbol": coin["symbol"],
-            "current_price": safe_float(coin.get("current_price")),
-            "price_change_percentage_24h": round(safe_float(coin.get("price_change_percentage_24h")), 2),
-            "probability": coin["probability"]
+    top_signals = [
+        {
+            "id": c["id"],
+            "symbol": c["symbol"],
+            "current_price": c["current_price"],
+            "price_change_percentage_24h": round(c["price_change_percentage_24h"], 2),
+            "probability": c["probability"],
         }
-        top_signals.append(signal)
+        for c in candidates[:6]
+    ]
 
     if not top_signals:
-        logger.warning("⚠️ Нет подходящих монет (심지어 после упрощения фильтра).")
+        logger.warning("⚠️ Нет подходящих монет даже после ослабленного фильтра.")
 
     return top_signals
