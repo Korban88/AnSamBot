@@ -62,7 +62,7 @@ async def send_signal_message(user_id, context):
         return
 
     symbol = signal_to_send['symbol']
-    price = float(signal_to_send.get("current_price", 0) or 0)
+    price = float(signal_to_send.get("current_price", 0))
     target_price = round(price * 1.05, 4)
     stop_loss = round(price * 0.97, 4)
     probability = signal_to_send.get("probability", "-")
@@ -92,10 +92,20 @@ async def send_daily_signal(user_id, app):
 
 async def debug_analysis_message(user_id, context):
     from analysis import ANALYSIS_LOG
-    text = "\n\n".join(ANALYSIS_LOG[-50:])
+    text = "\n\n".join(ANALYSIS_LOG[-200:])  # последние 200 строк
+
     if not text:
         text = "Анализ ещё не проводился."
-    await context.bot.send_message(chat_id=user_id, text=f"*Анализ монет:*\n{text}", parse_mode='Markdown')
+
+    # Ограничение Telegram: делим сообщение на части по 4000 символов
+    chunk_size = 4000
+    for i in range(0, len(text), chunk_size):
+        chunk = text[i:i+chunk_size]
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"*Анализ монет (часть {i // chunk_size + 1}):*\n{chunk}",
+            parse_mode='Markdown'
+        )
 
 async def debug_cache_message(user_id, context):
     cache = load_signal_cache()
@@ -104,15 +114,3 @@ async def debug_cache_message(user_id, context):
         return
     formatted = [f"{s['symbol'].upper()} — {s['probability']}% — ${s['current_price']}" for s in cache]
     await context.bot.send_message(chat_id=user_id, text=f"*Кэш сигналов:*\n" + "\n".join(formatted), parse_mode='Markdown')
-
-# 🔹 Новая функция для ручного анализа и обновления кэша
-async def manual_refresh_signals(user_id, context):
-    try:
-        signals = await analyze_cryptos(fallback=True)
-        if signals:
-            save_signal_cache(signals)
-            await context.bot.send_message(chat_id=user_id, text="♻️ Сигналы обновлены вручную.")
-        else:
-            await context.bot.send_message(chat_id=user_id, text="⚠️ Нет сигналов даже после анализа.")
-    except Exception as e:
-        await context.bot.send_message(chat_id=user_id, text=f"Ошибка анализа: {e}")
