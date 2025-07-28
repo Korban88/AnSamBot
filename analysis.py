@@ -13,20 +13,24 @@ def safe_float(value):
     except (TypeError, ValueError):
         return 0.0
 
-def normalize_coin(coin):
+def normalize_coin(raw_coin):
+    """Гарантирует, что все ключи имеют float вместо None."""
     return {
-        "id": coin.get("id"),
-        "symbol": coin.get("symbol", "?"),
-        "rsi": safe_float(coin.get("rsi")),
-        "ma7": safe_float(coin.get("ma7")),
-        "current_price": safe_float(coin.get("current_price")),
-        "price_change_percentage_24h": safe_float(coin.get("price_change_percentage_24h")),
-        "total_volume": safe_float(coin.get("total_volume")),
+        "id": raw_coin.get("id", ""),
+        "symbol": raw_coin.get("symbol", "?"),
+        "rsi": safe_float(raw_coin.get("rsi")),
+        "ma7": safe_float(raw_coin.get("ma7")),
+        "current_price": safe_float(raw_coin.get("current_price")),
+        "price_change_percentage_24h": safe_float(raw_coin.get("price_change_percentage_24h")),
+        "total_volume": safe_float(raw_coin.get("total_volume")),
     }
 
 def evaluate_coin(coin):
-    rsi, ma7, price = coin["rsi"], coin["ma7"], coin["current_price"]
-    change_24h, volume = coin["price_change_percentage_24h"], coin["total_volume"]
+    rsi = coin["rsi"]
+    ma7 = coin["ma7"]
+    price = coin["current_price"]
+    change_24h = coin["price_change_percentage_24h"]
+    volume = coin["total_volume"]
     symbol = coin["symbol"].upper()
 
     reasons = []
@@ -86,7 +90,6 @@ async def analyze_cryptos(fallback=False):
 
         coin = normalize_coin(raw_coin)
         score, prob = evaluate_coin(coin)
-
         if score >= 3:
             coin["score"] = score
             coin["probability"] = prob
@@ -111,6 +114,6 @@ async def analyze_cryptos(fallback=False):
     ]
 
     if not top_signals:
-        logger.warning("⚠️ Нет подходящих монет даже после ослабленного фильтра.")
+        logger.warning("⚠️ Нет подходящих монет даже после упрощённого фильтра.")
 
     return top_signals
