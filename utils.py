@@ -29,7 +29,7 @@ def save_used_symbol(symbol):
     used = load_used_symbols()
     used.append(symbol)
     with open(USED_SYMBOLS_FILE, "w") as f:
-        json.dump(used[-6:], f)  # последние 6 монет
+        json.dump(used[-6:], f)
 
 
 def load_signal_cache():
@@ -112,17 +112,15 @@ async def debug_cache_message(user_id, context):
     if not cache:
         await context.bot.send_message(chat_id=user_id, text="Кэш пуст.")
         return
+    formatted = [f"{s['symbol'].upper()} — {s['probability']}% — ${s['current_price']}" for s in cache]
+    await context.bot.send_message(chat_id=user_id, text=f"*Кэш сигналов:*\n" + "\n".join(formatted), parse_mode='Markdown')
 
-    formatted = []
-    for s in cache:
-        formatted.append(
-            f"💎 {s['symbol'].upper()} — Цена: ${s['current_price']} | "
-            f"Изм.24ч: {s['price_change_percentage_24h']}% | "
-            f"Вероятность: {s['probability']}%"
-        )
 
-    await context.bot.send_message(
-        chat_id=user_id,
-        text="*Кэш сигналов:*\n" + "\n".join(formatted),
-        parse_mode='Markdown'
-    )
+# 🔹 Новая функция для ручного обновления сигналов
+async def manual_refresh_signals():
+    """
+    Принудительно обновляет кэш сигналов.
+    """
+    signals = await analyze_cryptos()
+    save_signal_cache(signals)
+    return signals
