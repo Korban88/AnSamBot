@@ -29,8 +29,8 @@ def evaluate_coin(coin):
     reasons = []
     score = 0
 
-    # RSI check (строже)
-    if rsi > 0 and 50 <= rsi <= 60:
+    # RSI check
+    if 50 <= rsi <= 60:
         score += 1
     else:
         reasons.append(f"RSI {rsi} вне диапазона 50–60")
@@ -77,7 +77,7 @@ def evaluate_coin(coin):
     return score, prob
 
 
-async def analyze_cryptos(fallback=False):
+async def analyze_cryptos(fallback=True):
     global ANALYSIS_LOG
     ANALYSIS_LOG.clear()
 
@@ -113,9 +113,25 @@ async def analyze_cryptos(fallback=False):
             "symbol": coin["symbol"],
             "current_price": safe_float(coin.get("current_price")),
             "price_change_percentage_24h": round(safe_float(coin.get("price_change_percentage_24h")), 2),
-            "probability": coin["probability"]
+            "probability": coin["probability"],
+            "safe": True
         }
         top_signals.append(signal)
+
+    # Fallback: если нет "идеальных", берём лучший рискованный
+    if not top_signals and fallback:
+        all_data.sort(key=lambda x: safe_float(x.get("price_change_percentage_24h")), reverse=True)
+        best = all_data[0] if all_data else None
+        if best:
+            top_signals.append({
+                "id": best["id"],
+                "symbol": best["symbol"],
+                "current_price": safe_float(best.get("current_price")),
+                "price_change_percentage_24h": round(safe_float(best.get("price_change_percentage_24h")), 2),
+                "probability": 60.0,
+                "safe": False
+            })
+            ANALYSIS_LOG.append(f"⚠️ {best['symbol'].upper()}: выбран как fallback (рискованный сигнал)")
 
     if not top_signals:
         logger.warning("⚠️ Нет подходящих монет даже после фильтрации.")
