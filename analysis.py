@@ -23,45 +23,53 @@ def evaluate_coin(coin):
     price = safe_float(coin.get("current_price"))
     change_24h = safe_float(coin.get("price_change_percentage_24h"))
     volume = safe_float(coin.get("total_volume"))
+    change_7d = safe_float(coin.get("price_change_percentage_7d", 0))
     symbol = coin.get("symbol", "?").upper()
 
     reasons = []
     score = 0
 
-    # RSI check
-    if rsi > 0 and 45 <= rsi <= 65:
+    # RSI check (строже)
+    if rsi > 0 and 50 <= rsi <= 60:
         score += 1
     else:
-        reasons.append(f"RSI {rsi} вне диапазона 45–65 или отсутствует")
+        reasons.append(f"RSI {rsi} вне диапазона 50–60")
 
     # MA7 check
     if ma7 > 0 and price > ma7:
         score += 1
     else:
-        reasons.append(f"Цена ${price} ниже или нет MA7 ${ma7}")
+        reasons.append(f"Цена ${price} ниже MA7 ${ma7}")
 
-    # Change 24h check (только рост ≥2%)
+    # Change 24h check
     if change_24h >= 2.0:
         score += 1
     else:
         reasons.append(f"Изменение за 24ч {change_24h}% недостаточно (нужно ≥2%)")
 
-    # Volume check
-    if volume >= 1_000_000:
+    # Weekly trend check
+    if change_7d > -5.0:
         score += 1
     else:
-        reasons.append(f"Объём {volume} меньше 1M или отсутствует")
+        reasons.append(f"Просадка за 7д {change_7d}% слишком велика")
+
+    # Volume check
+    if volume >= 5_000_000:
+        score += 1
+    else:
+        reasons.append(f"Объём {volume} < 5M")
 
     # Probability calculation
-    rsi_weight = 1 if rsi > 0 and 45 <= rsi <= 65 else 0
+    rsi_weight = 1 if 50 <= rsi <= 60 else 0
     ma_weight = 1 if ma7 > 0 and price > ma7 else 0
     change_weight = min(change_24h / 5, 1) if change_24h > 0 else 0
-    volume_weight = 1 if volume >= 1_000_000 else 0
+    volume_weight = 1 if volume >= 5_000_000 else 0
+    trend_weight = 1 if change_7d > -5 else 0
 
-    prob = 50 + (rsi_weight + ma_weight + change_weight + volume_weight) * 11.25
+    prob = 40 + (rsi_weight + ma_weight + change_weight + volume_weight + trend_weight) * 12
     prob = round(min(prob, 95), 2)
 
-    if score >= 3:
+    if score >= 4:
         ANALYSIS_LOG.append(f"✅ {symbol}: score={score}, prob={prob}%")
     else:
         ANALYSIS_LOG.append(f"❌ {symbol}: отклонено — {', '.join(reasons)}")
@@ -87,7 +95,7 @@ async def analyze_cryptos(fallback=False):
             continue
 
         score, prob = evaluate_coin(coin)
-        if score >= 3:
+        if score >= 4:
             coin["score"] = score
             coin["probability"] = prob
             coin["price_change_percentage_24h"] = safe_float(coin.get("price_change_percentage_24h"))
