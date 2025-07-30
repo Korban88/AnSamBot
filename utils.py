@@ -103,7 +103,7 @@ async def debug_cache_message(user_id, context):
         await context.bot.send_message(chat_id=user_id, text="Кэш пуст.")
         return
     formatted = [f"{s['symbol'].upper()} — {s['probability']}% — ${s['current_price']}" for s in cache]
-    await context.bot.send_message(chat_id=user_id, text=f"*Кэш сигналов:*\n" + "\n".join(formatted), parse_mode='Markdown')
+    await context.bot.send_message(chat_id=user_id, text=f"*Кэш сигналов (последние):*\n" + "\n".join(formatted), parse_mode='Markdown')
 
 # 🔹 Новая функция для ручного обновления сигналов
 async def manual_refresh_signals(user_id, context):
@@ -114,5 +114,3 @@ async def manual_refresh_signals(user_id, context):
         await context.bot.send_message(chat_id=user_id, text="⚠️ Нет сигналов даже после анализа.")
     else:
         await context.bot.send_message(chat_id=user_id, text="♻️ Сигналы обновлены вручную.")
-
-    return signals
