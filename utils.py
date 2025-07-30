@@ -10,40 +10,40 @@ from config import OWNER_ID
 USED_SYMBOLS_FILE = "used_symbols.json"
 SIGNAL_CACHE_FILE = "top_signals_cache.json"
 
-# Сброс кэша
+
 def reset_cache():
     if os.path.exists(SIGNAL_CACHE_FILE):
         os.remove(SIGNAL_CACHE_FILE)
     if os.path.exists(USED_SYMBOLS_FILE):
         os.remove(USED_SYMBOLS_FILE)
 
-# Загрузка использованных символов
+
 def load_used_symbols():
     if os.path.exists(USED_SYMBOLS_FILE):
         with open(USED_SYMBOLS_FILE, "r") as f:
             return json.load(f)
     return []
 
-# Сохранение использованного символа
+
 def save_used_symbol(symbol):
     used = load_used_symbols()
     used.append(symbol)
     with open(USED_SYMBOLS_FILE, "w") as f:
-        json.dump(used[-6:], f)  # Храним только последние 6 монет для ротации
+        json.dump(used[-6:], f)  # последние 6 монет
 
-# Загрузка кэша сигналов
+
 def load_signal_cache():
     if os.path.exists(SIGNAL_CACHE_FILE):
         with open(SIGNAL_CACHE_FILE, "r") as f:
             return json.load(f)
     return []
 
-# Сохранение кэша сигналов
+
 def save_signal_cache(signals):
     with open(SIGNAL_CACHE_FILE, "w") as f:
         json.dump(signals, f)
 
-# Планировщик сигнала (ежедневно в 8:00)
+
 def schedule_daily_signal_check(app: Application, user_id: int):
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
     loop = asyncio.get_event_loop()
@@ -53,7 +53,7 @@ def schedule_daily_signal_check(app: Application, user_id: int):
     )
     scheduler.start()
 
-# Отправка сигнала вручную или по расписанию
+
 async def send_signal_message(user_id, context):
     signal_cache = load_signal_cache()
     used_symbols = load_used_symbols()
@@ -91,42 +91,14 @@ async def send_signal_message(user_id, context):
     await context.bot.send_message(chat_id=user_id, text=message, parse_mode='Markdown', reply_markup=keyboard)
     save_used_symbol(symbol)
 
-# Отправка сигнала по расписанию
+
 async def send_daily_signal(user_id, app):
     class DummyContext:
         bot = app.bot
     dummy_context = DummyContext()
     await send_signal_message(user_id, dummy_context)
 
-# Ручное обновление сигналов
-async def manual_refresh_signals(user_id, context):
-    """
-    Ручное обновление сигналов через кнопку или команду.
-    """
-    try:
-        signals = await analyze_cryptos()
-        save_signal_cache(signals)
 
-        if signals:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="♻️ Сигналы обновлены вручную.",
-                parse_mode="Markdown"
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="⚠️ Нет сигналов даже после анализа.",
-                parse_mode="Markdown"
-            )
-    except Exception as e:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"❌ Ошибка при обновлении сигналов: {e}",
-            parse_mode="Markdown"
-        )
-
-# Анализ монет (вывод логов)
 async def debug_analysis_message(user_id, context):
     from analysis import ANALYSIS_LOG
     text = "\n\n".join(ANALYSIS_LOG[-20:])
@@ -134,11 +106,23 @@ async def debug_analysis_message(user_id, context):
         text = "Анализ ещё не проводился."
     await context.bot.send_message(chat_id=user_id, text=f"*Анализ монет:*\n{text}", parse_mode='Markdown')
 
-# Вывод кэша
+
 async def debug_cache_message(user_id, context):
     cache = load_signal_cache()
     if not cache:
         await context.bot.send_message(chat_id=user_id, text="Кэш пуст.")
         return
-    formatted = [f"{s['symbol'].upper()} — {s['probability']}% — ${s['current_price']}" for s in cache]
-    await context.bot.send_message(chat_id=user_id, text=f"*Кэш сигналов:*\n" + "\n".join(formatted), parse_mode='Markdown')
+
+    formatted = []
+    for s in cache:
+        formatted.append(
+            f"💎 {s['symbol'].upper()} — Цена: ${s['current_price']} | "
+            f"Изм.24ч: {s['price_change_percentage_24h']}% | "
+            f"Вероятность: {s['probability']}%"
+        )
+
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="*Кэш сигналов:*\n" + "\n".join(formatted),
+        parse_mode='Markdown'
+    )
