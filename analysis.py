@@ -18,7 +18,6 @@ def safe_float(value, default=0.0):
 
 
 def round_price(price):
-    """Ограничиваем количество знаков после запятой"""
     if price >= 1:
         return round(price, 3)
     elif price >= 0.01:
@@ -28,7 +27,6 @@ def round_price(price):
 
 
 def format_volume(volume):
-    """Форматируем объём в удобный вид"""
     if volume >= 1_000_000_000:
         return f"{round(volume / 1_000_000_000, 2)}B"
     elif volume >= 1_000_000:
@@ -89,7 +87,7 @@ def evaluate_coin(coin):
     else:
         reasons.append(f"✗ Объём {format_volume(volume)} (<10M)")
 
-    # Probability calculation
+    # Вероятность
     rsi_weight = 1 if 52 <= rsi <= 58 else 0
     ma_weight = 1 if ma7 > 0 and price > ma7 else 0
     change_weight = min(change_24h / 5, 1) if change_24h > 0 else 0
@@ -113,6 +111,7 @@ async def analyze_cryptos(fallback=True):
 
     try:
         coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
+        logger.info(f"🔍 Всего монет для анализа: {len(coin_ids)}")
         all_data = await get_all_coin_data(coin_ids)
     except Exception as e:
         logger.error(f"Ошибка при получении данных: {e}")
@@ -120,10 +119,19 @@ async def analyze_cryptos(fallback=True):
 
     candidates = []
     for coin in all_data:
-        if coin.get("id") in EXCLUDE_IDS:
+        coin_id = coin.get("id", "")
+        symbol = coin.get("symbol", "?").upper()
+
+        if coin_id in EXCLUDE_IDS:
+            ANALYSIS_LOG.append(f"⛔ {symbol}: исключено вручную (в EXCLUDE_IDS)")
             continue
 
-        score, prob, reasons = evaluate_coin(coin)
+        try:
+            score, prob, reasons = evaluate_coin(coin)
+        except Exception as e:
+            ANALYSIS_LOG.append(f"⚠️ {symbol}: ошибка при анализе — {str(e)}")
+            continue
+
         if score >= 4:
             coin["score"] = score
             coin["probability"] = prob
@@ -153,18 +161,26 @@ async def analyze_cryptos(fallback=True):
     # fallback
     if not top_signals and fallback:
         all_data.sort(key=lambda x: safe_float(x.get("price_change_percentage_24h")), reverse=True)
-        best = all_data[0] if all_data else None
-        if best:
-            top_signals.append({
-                "id": best["id"],
-                "symbol": best["symbol"],
-                "current_price": round_price(safe_float(best.get("current_price"))),
-                "price_change_percentage_24h": round(safe_float(best.get("price_change_percentage_24h")), 2),
-                "probability": 65.0,
-                "reasons": ["⚠️ Fallback: рискованный выбор (нет идеальных монет)"],
-                "safe": False
-            })
-            ANALYSIS_LOG.append(f"⚠️ {best['symbol'].upper()}: выбран как fallback")
+        for fallback_coin in all_data:
+            if fallback_coin.get("id") in EXCLUDE_IDS:
+                continue
+            symbol = fallback_coin.get("symbol", "?").upper()
+            price = round_price(safe_float(fallback_coin.get("current_price")))
+            change = round(safe_float(fallback_coin.get("price_change_percentage_24h")), 2)
+            volume = safe_float(fallback_coin.get("total_volume", 0))
+
+            if price and change and volume >= 5_000_000:
+                top_signals.append({
+                    "id": fallback_coin["id"],
+                    "symbol": fallback_coin["symbol"],
+                    "current_price": price,
+                    "price_change_percentage_24h": change,
+                    "probability": 65.0,
+                    "reasons": ["⚠️ Fallback: рискованный выбор (нет идеальных монет)"],
+                    "safe": False
+                })
+                ANALYSIS_LOG.append(f"⚠️ {symbol}: выбран как fallback")
+                break
 
     if not top_signals:
         logger.warning("⚠️ Нет подходящих монет даже после фильтрации.")
