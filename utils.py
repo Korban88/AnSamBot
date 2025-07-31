@@ -10,13 +10,11 @@ from config import OWNER_ID
 USED_SYMBOLS_FILE = "used_symbols.json"
 SIGNAL_CACHE_FILE = "top_signals_cache.json"
 
-
 def reset_cache():
     if os.path.exists(SIGNAL_CACHE_FILE):
         os.remove(SIGNAL_CACHE_FILE)
     if os.path.exists(USED_SYMBOLS_FILE):
         os.remove(USED_SYMBOLS_FILE)
-
 
 def load_used_symbols():
     if os.path.exists(USED_SYMBOLS_FILE):
@@ -24,13 +22,11 @@ def load_used_symbols():
             return json.load(f)
     return []
 
-
 def save_used_symbol(symbol):
     used = load_used_symbols()
     used.append(symbol)
     with open(USED_SYMBOLS_FILE, "w") as f:
         json.dump(used[-6:], f)
-
 
 def load_signal_cache():
     if os.path.exists(SIGNAL_CACHE_FILE):
@@ -38,11 +34,9 @@ def load_signal_cache():
             return json.load(f)
     return []
 
-
 def save_signal_cache(signals):
     with open(SIGNAL_CACHE_FILE, "w") as f:
         json.dump(signals, f)
-
 
 def schedule_daily_signal_check(app: Application, user_id: int):
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
@@ -52,7 +46,6 @@ def schedule_daily_signal_check(app: Application, user_id: int):
         "cron", hour=8, minute=0
     )
     scheduler.start()
-
 
 async def send_signal_message(user_id, context):
     signal_cache = load_signal_cache()
@@ -70,8 +63,8 @@ async def send_signal_message(user_id, context):
 
     symbol = signal_to_send["symbol"]
     price = float(signal_to_send.get("current_price", 0))
-    target_price = round(price * 1.05, 4)
-    stop_loss = round(price * 0.97, 4)
+    target_price = round(price * 1.05, 3)
+    stop_loss = round(price * 0.97, 3)
     probability = signal_to_send.get("probability", "-")
     change_24h = signal_to_send.get("price_change_percentage_24h", "-")
     safe_flag = signal_to_send.get("safe", True)
@@ -94,13 +87,11 @@ async def send_signal_message(user_id, context):
     await context.bot.send_message(chat_id=user_id, text=message, parse_mode="Markdown", reply_markup=keyboard)
     save_used_symbol(symbol)
 
-
 async def send_daily_signal(user_id, app):
     class DummyContext:
         bot = app.bot
     dummy_context = DummyContext()
     await send_signal_message(user_id, dummy_context)
-
 
 async def debug_analysis_message(user_id, context):
     from analysis import ANALYSIS_LOG
@@ -108,7 +99,6 @@ async def debug_analysis_message(user_id, context):
     if not text:
         text = "Анализ ещё не проводился."
     await context.bot.send_message(chat_id=user_id, text=f"*Анализ монет:*\n{text}", parse_mode="Markdown")
-
 
 async def debug_cache_message(user_id, context):
     cache = load_signal_cache()
@@ -120,7 +110,6 @@ async def debug_cache_message(user_id, context):
         for s in cache
     ]
     await context.bot.send_message(chat_id=user_id, text=f"*Кэш сигналов (последние):*\n" + "\n".join(formatted), parse_mode="Markdown")
-
 
 async def manual_refresh_signals(user_id, context):
     signals = await analyze_cryptos()
