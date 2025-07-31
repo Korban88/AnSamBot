@@ -46,6 +46,11 @@ def evaluate_coin(coin):
     volume = safe_float(coin.get("total_volume"))
     symbol = coin.get("symbol", "?").upper()
 
+    # Проверяем на отсутствие данных
+    if price == 0 or rsi == 0 or volume == 0:
+        ANALYSIS_LOG.append(f"⚠️ {symbol}: нет данных от CoinGecko")
+        return None, None, None
+
     reasons = []
     score = 0
 
@@ -125,6 +130,7 @@ async def analyze_cryptos(fallback=True):
         return []
 
     candidates = []
+    no_data_count = 0
     for coin in all_data:
         coin_id = coin.get("id", "")
         symbol = coin.get("symbol", "?").upper()
@@ -135,6 +141,9 @@ async def analyze_cryptos(fallback=True):
 
         try:
             score, prob, reasons = evaluate_coin(coin)
+            if score is None:  # Монета без данных
+                no_data_count += 1
+                continue
         except Exception as e:
             ANALYSIS_LOG.append(f"⚠️ {symbol}: ошибка при анализе — {str(e)}")
             continue
@@ -191,7 +200,7 @@ async def analyze_cryptos(fallback=True):
 
     passed = len(candidates)
     excluded = len([c for c in all_data if c.get("id") in EXCLUDE_IDS])
-    ANALYSIS_LOG.append(f"📊 Статистика анализа: получено {len(all_data)} из {len(coin_ids)}, исключено {excluded}, прошло фильтр {passed}")
+    ANALYSIS_LOG.append(f"📊 Статистика анализа: получено {len(all_data)} из {len(coin_ids)}, исключено {excluded}, без данных {no_data_count}, прошло фильтр {passed}")
 
     if not top_signals:
         logger.warning("⚠️ Нет подходящих монет даже после фильтрации.")
