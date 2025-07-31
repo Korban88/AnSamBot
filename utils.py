@@ -77,7 +77,7 @@ async def send_signal_message(user_id, context):
     reasons = signal_to_send.get("reasons", [])
     safe_flag = signal_to_send.get("safe", True)
 
-    reasons_list = "\n".join(reasons)
+    reasons_list = "\n".join(reasons) if reasons else "данные недоступны"
 
     message = (
         f"📈 *Сигнал на рост монеты {symbol.upper()}*\n"
@@ -85,8 +85,8 @@ async def send_signal_message(user_id, context):
         f"• Цель: *+5% ➜ ${target_price}*\n"
         f"• Стоп-лосс: *${stop_loss}*\n"
         f"• Изменение за 24ч: *{change_24h}%*\n"
-        f"• Вероятность роста: *{probability}%*\n\n"
-        f"*Причины:*\n{reasons_list}"
+        f"• Вероятность роста: *{probability}%*\n"
+        f"• Причины: {reasons_list}"
     )
 
     if not safe_flag:
@@ -118,13 +118,19 @@ async def debug_analysis_message(user_id, context):
 async def debug_cache_message(user_id, context):
     cache = load_signal_cache()
     if not cache:
-        await context.bot.send_message(chat_id=user_id, text="Кэш пуст.")
+        await context.bot.send_message(chat_id=user_id, text="📦 Кэш сигналов пуст.")
         return
-    formatted = [
-        f"{s['symbol'].upper()} — {s['probability']}% — ${s['current_price']} {'(риск)' if not s.get('safe', True) else ''}"
-        for s in cache
-    ]
-    await context.bot.send_message(chat_id=user_id, text=f"*Кэш сигналов (последние):*\n" + "\n".join(formatted), parse_mode="Markdown")
+
+    formatted = []
+    for s in cache:
+        risk_flag = "⚠️" if not s.get("safe", True) else "✅"
+        formatted.append(
+            f"{risk_flag} {s['symbol'].upper()} — ${s['current_price']} — {s['probability']}% — "
+            f"{s['price_change_percentage_24h']}% за 24ч"
+        )
+
+    message = "*📦 Кэш сигналов:*\n" + "\n".join(formatted)
+    await context.bot.send_message(chat_id=user_id, text=message, parse_mode="Markdown")
 
 
 async def manual_refresh_signals(user_id, context):
