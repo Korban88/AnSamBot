@@ -76,18 +76,25 @@ async def fetch_historical_prices(coin_id, days=30):
             return []
 
 async def fetch_all_coin_data(coin_ids):
-    url = f"https://api.coingecko.com/api/v3/coins/markets"
-    params = {
-        "vs_currency": "usd",
-        "ids": ",".join(coin_ids),
-        "price_change_percentage": "24h,7d"
-    }
+    """Получает данные с CoinGecko чанками по 45 монет"""
+    results = []
+    chunk_size = 45
     async with aiohttp.ClientSession() as session:
-        async with session.get(url, params=params) as response:
-            if response.status == 200:
-                return await response.json()
-            else:
-                return []
+        for i in range(0, len(coin_ids), chunk_size):
+            chunk = coin_ids[i:i + chunk_size]
+            url = "https://api.coingecko.com/api/v3/coins/markets"
+            params = {
+                "vs_currency": "usd",
+                "ids": ",".join(chunk),
+                "price_change_percentage": "24h,7d"
+            }
+            async with session.get(url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    results.extend(data)
+                else:
+                    print(f"⚠️ Ошибка API {response.status} для монет: {chunk}")
+    return results
 
 async def get_all_coin_data(coin_ids):
     raw_data = await fetch_all_coin_data(coin_ids)
