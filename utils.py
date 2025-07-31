@@ -69,22 +69,22 @@ async def send_signal_message(user_id, context):
         return
 
     symbol = signal_to_send["symbol"]
-    price = signal_to_send.get("current_price", "0")
-    target_price = float(price) * 1.05
-    stop_loss = float(price) * 0.97
+    price = float(signal_to_send.get("current_price", 0))
+    target_price = round(price * 1.05, 3)
+    stop_loss = round(price * 0.97, 3)
     probability = signal_to_send.get("probability", "-")
     change_24h = signal_to_send.get("price_change_percentage_24h", "-")
     safe_flag = signal_to_send.get("safe", True)
-    reasons = ", ".join(signal_to_send.get("reasons", [])) or "данные недоступны"
+    reasons = signal_to_send.get("reasons", ["Причины: данные недоступны"])
 
     message = (
         f"📈 *Сигнал на рост монеты {symbol.upper()}*\n"
         f"• Цена входа: *${price}*\n"
-        f"• Цель: *+5% ➜ ${round(target_price,3)}*\n"
-        f"• Стоп-лосс: *${round(stop_loss,3)}*\n"
+        f"• Цель: *+5% ➜ ${target_price}*\n"
+        f"• Стоп-лосс: *${stop_loss}*\n"
         f"• Изменение за 24ч: *{change_24h}%*\n"
         f"• Вероятность роста: *{probability}%*\n"
-        f"• Причины: {reasons}"
+        f"• Причины: {', '.join(reasons)}"
     )
     if not safe_flag:
         message = "⚠️ *Рискованный сигнал* ⚠️\n\n" + message
@@ -121,7 +121,7 @@ async def debug_cache_message(user_id, context):
         f"{s['symbol'].upper()} — {s['probability']}% — ${s['current_price']} {'(риск)' if not s.get('safe', True) else ''}"
         for s in cache
     ]
-    await context.bot.send_message(chat_id=user_id, text=f"*Кэш сигналов:*\n" + "\n".join(formatted), parse_mode="Markdown")
+    await context.bot.send_message(chat_id=user_id, text=f"*Кэш сигналов (последние):*\n" + "\n".join(formatted), parse_mode="Markdown")
 
 
 async def manual_refresh_signals(user_id, context):
