@@ -44,6 +44,16 @@ def save_signal_cache(signals):
         json.dump(signals, f)
 
 
+def format_price(price: float) -> str:
+    """Ограничение знаков после точки"""
+    if price >= 1:
+        return f"{price:.3f}"
+    elif price >= 0.01:
+        return f"{price:.4f}"
+    else:
+        return f"{price:.6f}"
+
+
 def schedule_daily_signal_check(app: Application, user_id: int):
     scheduler = BackgroundScheduler(timezone="Europe/Moscow")
     loop = asyncio.get_event_loop()
@@ -70,8 +80,8 @@ async def send_signal_message(user_id, context):
 
     symbol = signal_to_send["symbol"]
     price = float(signal_to_send.get("current_price", 0))
-    target_price = round(price * 1.05, 3)
-    stop_loss = round(price * 0.97, 3)
+    target_price = price * 1.05
+    stop_loss = price * 0.97
     probability = signal_to_send.get("probability", "-")
     change_24h = signal_to_send.get("price_change_percentage_24h", "-")
     reasons = signal_to_send.get("reasons", [])
@@ -81,9 +91,9 @@ async def send_signal_message(user_id, context):
 
     message = (
         f"📈 *Сигнал на рост монеты {symbol.upper()}*\n"
-        f"• Цена входа: *${price}*\n"
-        f"• Цель: *+5% ➜ ${target_price}*\n"
-        f"• Стоп-лосс: *${stop_loss}*\n"
+        f"• Цена входа: *${format_price(price)}*\n"
+        f"• Цель: *+5% ➜ ${format_price(target_price)}*\n"
+        f"• Стоп-лосс: *${format_price(stop_loss)}*\n"
         f"• Изменение за 24ч: *{change_24h}%*\n"
         f"• Вероятность роста: *{probability}%*\n"
         f"• Причины: {reasons_list}"
@@ -125,8 +135,8 @@ async def debug_cache_message(user_id, context):
     for s in cache:
         risk_flag = "⚠️" if not s.get("safe", True) else "✅"
         formatted.append(
-            f"{risk_flag} {s['symbol'].upper()} — ${s['current_price']} — {s['probability']}% — "
-            f"{s['price_change_percentage_24h']}% за 24ч"
+            f"{risk_flag} {s['symbol'].upper()} — ${format_price(float(s['current_price']))} — "
+            f"{s['probability']}% — {s['price_change_percentage_24h']}% за 24ч"
         )
 
     message = "*📦 Кэш сигналов:*\n" + "\n".join(formatted)
