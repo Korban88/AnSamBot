@@ -26,8 +26,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# Создаём handler для main.py
+# ✅ Объекты, которые main.py будет импортировать
 start_handler = CommandHandler("start", start)
+
+async def analyze_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await manual_refresh_signals(update.effective_user.id, context)
+
+analyze_command_handler = CommandHandler("analyze", analyze_handler)
+
+
+# Debug команды
+debug_handler = CommandHandler("debug_cache", lambda update, context: debug_cache_message(update.effective_user.id, context))
+debug_analysis_handler = CommandHandler("debug_analysis", lambda update, context: debug_analysis_message(update.effective_user.id, context))
 
 
 # Inline кнопки
