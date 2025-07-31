@@ -49,12 +49,12 @@ def evaluate_coin(coin):
     reasons = []
     score = 0
 
-    # RSI check
-    if 52 <= rsi <= 58:
+    # RSI check (немного расширен диапазон)
+    if 50 <= rsi <= 60:
         score += 1
         reasons.append(f"✓ RSI {rsi} (в норме)")
     else:
-        reasons.append(f"✗ RSI {rsi} (вне диапазона 52–58)")
+        reasons.append(f"✗ RSI {rsi} (вне диапазона 50–60)")
 
     # MA7 check
     if ma7 > 0 and price > ma7:
@@ -64,35 +64,37 @@ def evaluate_coin(coin):
         reasons.append(f"✗ Цена ниже MA7 ({ma7})")
 
     # Change 24h check
-    if change_24h >= 3.0:
+    if change_24h >= 2.5:
         score += 1
         reasons.append(f"✓ Рост за 24ч {change_24h}%")
     else:
         reasons.append(f"✗ Рост за 24ч {change_24h}% (мало)")
 
-    # Weekly trend check
-    if change_7d != 0:
-        if change_7d >= 0:
+    # Weekly trend check (если данных нет — не штрафуем)
+    if change_7d is not None:
+        if change_7d > 0:
             score += 1
             reasons.append(f"✓ Тренд за 7д {change_7d}%")
-        else:
+        elif change_7d < 0:
             reasons.append(f"✗ Тренд за 7д {change_7d}% (просадка)")
+        else:
+            reasons.append("⚠️ Данные по 7д отсутствуют, не учитываем")
     else:
-        reasons.append("✗ Данные по 7д недоступны")
+        reasons.append("⚠️ Данные по 7д отсутствуют")
 
-    # Volume check
-    if volume >= 10_000_000:
+    # Volume check (мягкий порог)
+    if volume >= 5_000_000:
         score += 1
         reasons.append(f"✓ Объём {format_volume(volume)}")
     else:
-        reasons.append(f"✗ Объём {format_volume(volume)} (<10M)")
+        reasons.append(f"✗ Объём {format_volume(volume)} (<5M)")
 
     # Вероятность
-    rsi_weight = 1 if 52 <= rsi <= 58 else 0
+    rsi_weight = 1 if 50 <= rsi <= 60 else 0
     ma_weight = 1 if ma7 > 0 and price > ma7 else 0
     change_weight = min(change_24h / 5, 1) if change_24h > 0 else 0
-    volume_weight = 1 if volume >= 10_000_000 else 0
-    trend_weight = 1 if change_7d > 0 else 0
+    volume_weight = 1 if volume >= 5_000_000 else 0
+    trend_weight = 1 if change_7d and change_7d > 0 else 0
 
     prob = 70 + (rsi_weight + ma_weight + change_weight + volume_weight + trend_weight) * 4.5
     prob = round(min(prob, 93), 2)
@@ -113,6 +115,7 @@ async def analyze_cryptos(fallback=True):
         coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
         logger.info(f"🔍 Всего монет для анализа: {len(coin_ids)}")
         all_data = await get_all_coin_data(coin_ids)
+        logger.info(f"📊 Получено данных по {len(all_data)} монетам")
     except Exception as e:
         logger.error(f"Ошибка при получении данных: {e}")
         return []
