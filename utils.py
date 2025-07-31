@@ -74,8 +74,10 @@ async def send_signal_message(user_id, context):
     stop_loss = round(price * 0.97, 3)
     probability = signal_to_send.get("probability", "-")
     change_24h = signal_to_send.get("price_change_percentage_24h", "-")
+    reasons = signal_to_send.get("reasons", [])
     safe_flag = signal_to_send.get("safe", True)
-    reasons = signal_to_send.get("reasons", ["Причины: данные недоступны"])
+
+    reasons_list = "\n".join(reasons)
 
     message = (
         f"📈 *Сигнал на рост монеты {symbol.upper()}*\n"
@@ -83,9 +85,10 @@ async def send_signal_message(user_id, context):
         f"• Цель: *+5% ➜ ${target_price}*\n"
         f"• Стоп-лосс: *${stop_loss}*\n"
         f"• Изменение за 24ч: *{change_24h}%*\n"
-        f"• Вероятность роста: *{probability}%*\n"
-        f"• Причины: {', '.join(reasons)}"
+        f"• Вероятность роста: *{probability}%*\n\n"
+        f"*Причины:*\n{reasons_list}"
     )
+
     if not safe_flag:
         message = "⚠️ *Рискованный сигнал* ⚠️\n\n" + message
 
