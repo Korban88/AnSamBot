@@ -42,7 +42,7 @@ def evaluate_coin(coin):
     ma7 = safe_float(coin.get("ma7"))
     price = safe_float(coin.get("current_price"))
     change_24h = safe_float(coin.get("price_change_percentage_24h"))
-    change_7d = safe_float(coin.get("price_change_percentage_7d", 0))
+    change_7d = coin.get("price_change_percentage_7d")
     volume = safe_float(coin.get("total_volume"))
     symbol = coin.get("symbol", "?").upper()
 
@@ -70,7 +70,7 @@ def evaluate_coin(coin):
     else:
         reasons.append(f"✗ Рост за 24ч {change_24h}% (мало)")
 
-    # Weekly trend check
+    # Weekly trend check (если данных нет — не штрафуем)
     if change_7d is not None:
         if change_7d > 0:
             score += 1
@@ -80,7 +80,7 @@ def evaluate_coin(coin):
         else:
             reasons.append("⚠️ Данные по 7д отсутствуют, не учитываем")
     else:
-        reasons.append("⚠️ Данные по 7д отсутствуют")
+        reasons.append("⚠️ Данные по 7д отсутствуют (не штрафуем)")
 
     # Volume check
     if volume >= 5_000_000:
@@ -116,8 +116,10 @@ async def analyze_cryptos(fallback=True):
         logger.info(f"🔍 Всего монет для анализа: {len(coin_ids)}")
         all_data = await get_all_coin_data(coin_ids)
         logger.info(f"📊 Данные получены по {len(all_data)} монетам из {len(coin_ids)}")
+
         if len(all_data) < len(coin_ids):
-            ANALYSIS_LOG.append(f"⚠️ Потеряно {len(coin_ids) - len(all_data)} монет при запросе к CoinGecko")
+            missing_ids = set(coin_ids) - {c.get("id") for c in all_data}
+            ANALYSIS_LOG.append(f"⚠️ Нет данных по {len(missing_ids)} монетам: {', '.join(list(missing_ids)[:10])}...")
     except Exception as e:
         logger.error(f"Ошибка при получении данных: {e}")
         return []
@@ -186,6 +188,10 @@ async def analyze_cryptos(fallback=True):
                 })
                 ANALYSIS_LOG.append(f"⚠️ {symbol}: выбран как fallback")
                 break
+
+    passed = len(candidates)
+    excluded = len([c for c in all_data if c.get("id") in EXCLUDE_IDS])
+    ANALYSIS_LOG.append(f"📊 Статистика анализа: получено {len(all_data)} из {len(coin_ids)}, исключено {excluded}, прошло фильтр {passed}")
 
     if not top_signals:
         logger.warning("⚠️ Нет подходящих монет даже после фильтрации.")
