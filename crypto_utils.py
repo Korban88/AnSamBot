@@ -98,6 +98,7 @@ async def fetch_all_coin_data(coin_ids):
 
 async def get_all_coin_data(coin_ids):
     raw_data = await fetch_all_coin_data(coin_ids)
+    received_ids = {coin.get("id") for coin in raw_data}
     result = []
 
     for coin in raw_data:
@@ -135,8 +136,25 @@ async def get_all_coin_data(coin_ids):
         coin["rsi"] = rsi
         coin["ma7"] = ma7
         coin["ma30"] = ma30
+        coin["no_data"] = False
 
         result.append(coin)
+
+    # Добавляем заглушки для монет, которые не вернул API
+    missing_ids = [cid for cid in coin_ids if cid not in received_ids]
+    for cid in missing_ids:
+        result.append({
+            "id": cid,
+            "symbol": cid.upper(),
+            "current_price": None,
+            "price_change_percentage_24h": None,
+            "price_change_percentage_7d": None,
+            "total_volume": None,
+            "rsi": None,
+            "ma7": None,
+            "ma30": None,
+            "no_data": True
+        })
 
     save_cache()
     return result
