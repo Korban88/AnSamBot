@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
 ANALYSIS_LOG = []
 
+
 def safe_float(value, default=0.0):
     try:
         if value is None:
@@ -15,14 +16,16 @@ def safe_float(value, default=0.0):
     except (TypeError, ValueError):
         return default
 
-def round_price(price):
+
+def format_price(price):
     """Ограничиваем количество знаков после запятой"""
     if price >= 1:
-        return round(price, 3)
+        return f"{price:.3f}"
     elif price >= 0.01:
-        return round(price, 4)
+        return f"{price:.4f}"
     else:
-        return round(price, 6)
+        return f"{price:.6f}"
+
 
 def evaluate_coin(coin):
     rsi = safe_float(coin.get("rsi"))
@@ -40,52 +43,58 @@ def evaluate_coin(coin):
     if 50 <= rsi <= 60:
         score += 1
     else:
-        reasons.append(f"RSI {rsi} вне диапазона 50–60")
+        reasons.append(f"RSI={rsi}")
 
     # MA7 check
     if ma7 > 0 and price > ma7:
         score += 1
     else:
-        reasons.append(f"Цена ${price} ниже MA7 ${ma7}")
+        reasons.append(f"MA7={ma7}, цена={price}")
 
-    # Change 24h check (≥3.5%)
-    if change_24h >= 3.5:
+    # Change 24h check
+    if change_24h >= 2.0:
         score += 1
     else:
-        reasons.append(f"Изменение за 24ч {change_24h}% недостаточно (нужно ≥3.5%)")
+        reasons.append(f"24ч={change_24h}%")
 
     # Weekly trend check
     if change_7d > -5.0:
         score += 1
     else:
-        reasons.append(f"Просадка за 7д {change_7d}% слишком велика")
+        reasons.append(f"7д={change_7d}%")
 
     # Volume check
     if volume >= 5_000_000:
         score += 1
     else:
-        reasons.append(f"Объём {volume} < 5M")
+        reasons.append(f"объём={volume}")
 
-    # Probability calculation
-    rsi_weight = 1 if 50 <= rsi <= 60 else 0
-    ma_weight = 1 if ma7 > 0 and price > ma7 else 0
-    change_weight = min(change_24h / 5, 1) if change_24h > 0 else 0
-    volume_weight = 1 if volume >= 5_000_000 else 0
-    trend_weight = 1 if change_7d > -5 else 0
+    # Probability calculation (реалистично)
+    prob = 65
+    if 50 <= rsi <= 60:
+        prob += 7
+    if ma7 > 0 and price > ma7:
+        prob += 7
+    if change_24h >= 2:
+        prob += min(change_24h / 2, 7)
+    if volume >= 5_000_000:
+        prob += 7
+    if change_7d > -5:
+        prob += 4
 
-    prob = 70 + (rsi_weight * 5 + ma_weight * 5 + change_weight * 7 + volume_weight * 5 + trend_weight * 3)
-    prob = round(min(prob, 95), 2)
+    prob = round(min(prob, 90), 2)
 
     if score >= 4:
-        ANALYSIS_LOG.append(f"✅ {symbol}: score={score}, prob={prob}%")
+        ANALYSIS_LOG.append(f"✅ {symbol}: score={score}, prob={prob}%, причины: {', '.join(reasons) if reasons else 'все условия выполнены'}")
     else:
-        ANALYSIS_LOG.append(f"❌ {symbol}: отклонено — {', '.join(reasons)}")
+        ANALYSIS_LOG.append(f"❌ {symbol}: score={score}, причины: {', '.join(reasons)}")
 
-    return score, prob
+    return score, prob, reasons
+
 
 async def analyze_cryptos(fallback=True):
     global ANALYSIS_LOG
-    ANALYSIS_LOG = ANALYSIS_LOG[-50:]  # сохраняем только 50 последних
+    ANALYSIS_LOG.clear()
 
     try:
         coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
@@ -99,13 +108,13 @@ async def analyze_cryptos(fallback=True):
         if coin.get("id") in EXCLUDE_IDS:
             continue
 
-        score, prob = evaluate_coin(coin)
+        score, prob, reasons = evaluate_coin(coin)
         if score >= 4:
             coin["score"] = score
             coin["probability"] = prob
-            coin["current_price"] = round_price(safe_float(coin.get("current_price")))
+            coin["current_price"] = format_price(safe_float(coin.get("current_price")))
             coin["price_change_percentage_24h"] = round(safe_float(coin.get("price_change_percentage_24h")), 2)
-            coin["price_change_percentage_7d"] = round(safe_float(coin.get("price_change_percentage_7d", 0)), 2)
+            coin["reasons"] = reasons
             candidates.append(coin)
 
     candidates.sort(key=lambda x: (
@@ -120,12 +129,13 @@ async def analyze_cryptos(fallback=True):
             "symbol": coin["symbol"],
             "current_price": coin["current_price"],
             "price_change_percentage_24h": coin["price_change_percentage_24h"],
-            "price_change_percentage_7d": coin["price_change_percentage_7d"],
             "probability": coin["probability"],
+            "reasons": coin.get("reasons", []),
             "safe": True
         }
         top_signals.append(signal)
 
+    # fallback (если нет идеальных)
     if not top_signals and fallback:
         all_data.sort(key=lambda x: safe_float(x.get("price_change_percentage_24h")), reverse=True)
         best = all_data[0] if all_data else None
@@ -133,10 +143,10 @@ async def analyze_cryptos(fallback=True):
             top_signals.append({
                 "id": best["id"],
                 "symbol": best["symbol"],
-                "current_price": round_price(safe_float(best.get("current_price"))),
+                "current_price": format_price(safe_float(best.get("current_price"))),
                 "price_change_percentage_24h": round(safe_float(best.get("price_change_percentage_24h")), 2),
-                "price_change_percentage_7d": round(safe_float(best.get("price_change_percentage_7d", 0)), 2),
                 "probability": 65.0,
+                "reasons": ["Fallback: рискованный выбор"],
                 "safe": False
             })
             ANALYSIS_LOG.append(f"⚠️ {best['symbol'].upper()}: выбран как fallback (рискованный сигнал)")
