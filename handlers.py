@@ -18,12 +18,17 @@ reply_keyboard = [
 ]
 reply_markup = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
 
+
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Добро пожаловать в новую жизнь, Корбан!",
         reply_markup=reply_markup
     )
+
+# Создаём handler для main.py
+start_handler = CommandHandler("start", start)
+
 
 # Inline кнопки
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -37,6 +42,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"🔔 Монета {symbol.upper()} добавлена в отслеживание.")
 
 button_handler = CallbackQueryHandler(button_callback)
+
 
 # Reply кнопки
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -58,4 +64,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         CoinTracker.clear_all()
         await update.message.reply_text("⛔ Все отслеживания остановлены.", reply_markup=reply_markup)
     else:
-        await update.message.reply_text("✉️ Напиши 'сигнал', 'анализ', 'кеш' или 'сброс'.", reply_markup=reply_markup)
+        await update.message.reply_text(
+            "✉️ Напиши 'сигнал', 'анализ', 'кеш' или 'сброс'.",
+            reply_markup=reply_markup
+        )
