@@ -49,7 +49,7 @@ def evaluate_coin(coin):
     reasons = []
     score = 0
 
-    # RSI check (немного расширен диапазон)
+    # RSI check
     if 50 <= rsi <= 60:
         score += 1
         reasons.append(f"✓ RSI {rsi} (в норме)")
@@ -70,7 +70,7 @@ def evaluate_coin(coin):
     else:
         reasons.append(f"✗ Рост за 24ч {change_24h}% (мало)")
 
-    # Weekly trend check (если данных нет — не штрафуем)
+    # Weekly trend check
     if change_7d is not None:
         if change_7d > 0:
             score += 1
@@ -82,14 +82,14 @@ def evaluate_coin(coin):
     else:
         reasons.append("⚠️ Данные по 7д отсутствуют")
 
-    # Volume check (мягкий порог)
+    # Volume check
     if volume >= 5_000_000:
         score += 1
         reasons.append(f"✓ Объём {format_volume(volume)}")
     else:
         reasons.append(f"✗ Объём {format_volume(volume)} (<5M)")
 
-    # Вероятность
+    # Probability
     rsi_weight = 1 if 50 <= rsi <= 60 else 0
     ma_weight = 1 if ma7 > 0 and price > ma7 else 0
     change_weight = min(change_24h / 5, 1) if change_24h > 0 else 0
@@ -115,7 +115,9 @@ async def analyze_cryptos(fallback=True):
         coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
         logger.info(f"🔍 Всего монет для анализа: {len(coin_ids)}")
         all_data = await get_all_coin_data(coin_ids)
-        logger.info(f"📊 Получено данных по {len(all_data)} монетам")
+        logger.info(f"📊 Данные получены по {len(all_data)} монетам из {len(coin_ids)}")
+        if len(all_data) < len(coin_ids):
+            ANALYSIS_LOG.append(f"⚠️ Потеряно {len(coin_ids) - len(all_data)} монет при запросе к CoinGecko")
     except Exception as e:
         logger.error(f"Ошибка при получении данных: {e}")
         return []
