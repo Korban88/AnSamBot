@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 CACHE_PATH = "indicators_cache.json"
 
+# Загрузка или инициализация кеша
 if os.path.exists(CACHE_PATH):
     with open(CACHE_PATH, "r") as f:
         INDICATOR_CACHE = json.load(f)
@@ -49,6 +50,7 @@ def calculate_ma(prices, days=7):
 def calculate_rsi(prices):
     if len(prices) < 8:
         return None
+
     gains, losses = [], []
     for i in range(1, 8):
         delta = prices[i] - prices[i - 1]
@@ -56,8 +58,10 @@ def calculate_rsi(prices):
             gains.append(delta)
         else:
             losses.append(abs(delta))
+
     avg_gain = sum(gains) / 7 if gains else 0.0001
     avg_loss = sum(losses) / 7 if losses else 0.0001
+
     rs = avg_gain / avg_loss
     return round(100 - (100 / (1 + rs)), 2)
 
@@ -72,27 +76,22 @@ async def fetch_historical_prices(coin_id, days=30):
             return []
 
 async def fetch_all_coin_data(coin_ids):
-    results = []
-    chunk_size = 50
-    for i in range(0, len(coin_ids), chunk_size):
-        chunk = coin_ids[i:i + chunk_size]
-        url = f"https://api.coingecko.com/api/v3/coins/markets"
-        params = {
-            "vs_currency": "usd",
-            "ids": ",".join(chunk),
-            "price_change_percentage": "24h,7d"
-        }
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    chunk_data = await response.json()
-                    results.extend(chunk_data)
-    return results
+    url = f"https://api.coingecko.com/api/v3/coins/markets"
+    params = {
+        "vs_currency": "usd",
+        "ids": ",".join(coin_ids),
+        "price_change_percentage": "24h,7d"
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params) as response:
+            if response.status == 200:
+                return await response.json()
+            else:
+                return []
 
 async def get_all_coin_data(coin_ids):
     raw_data = await fetch_all_coin_data(coin_ids)
     result = []
-    now = datetime.utcnow()
 
     for coin in raw_data:
         coin_id = coin.get("id", "")
@@ -103,6 +102,7 @@ async def get_all_coin_data(coin_ids):
 
         cached = INDICATOR_CACHE.get(coin_id, {})
         timestamp = cached.get("timestamp")
+        now = datetime.utcnow()
         is_fresh = timestamp and (now - datetime.fromisoformat(timestamp)) < timedelta(hours=1)
 
         if is_fresh:
@@ -119,3 +119,34 @@ async def get_all_coin_data(coin_ids):
                 "ma7": ma7,
                 "ma30": ma30,
                 "timestamp": now.isoformat()
+            }
+
+        coin["current_price"] = current_price
+        coin["price_change_percentage_24h"] = change_24h
+        coin["price_change_percentage_7d"] = change_7d
+        coin["total_volume"] = volume
+        coin["rsi"] = rsi
+        coin["ma7"] = ma7
+        coin["ma30"] = ma30
+
+        result.append(coin)
+
+    save_cache()
+    return result
+
+async def get_current_price(symbol):
+    from crypto_list import TELEGRAM_WALLET_COIN_IDS
+
+    coin_id = None
+    for id_, sym in TELEGRAM_WALLET_COIN_IDS.items():
+        if sym.lower() == symbol.lower():
+            coin_id = id_
+            break
+
+    if not coin_id:
+        return None
+
+    coins = await get_all_coin_data([coin_id])
+    if coins and coins[0]:
+        return coins[0].get("current_price")
+    return None
