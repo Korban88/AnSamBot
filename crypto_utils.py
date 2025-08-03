@@ -2,6 +2,8 @@ import aiohttp
 import json
 import os
 from datetime import datetime, timedelta
+import logging
+import asyncio
 
 CACHE_PATH = "indicators_cache.json"
 
@@ -93,7 +95,7 @@ async def fetch_all_coin_data(coin_ids):
                     data = await response.json()
                     results.extend(data)
                 else:
-                    print(f"⚠️ Ошибка API {response.status} для монет: {chunk}")
+                    logging.warning(f"⚠️ Ошибка API {response.status} для монет: {chunk}")
     return results
 
 async def get_all_coin_data(coin_ids):
@@ -159,19 +161,34 @@ async def get_all_coin_data(coin_ids):
     save_cache()
     return result
 
-async def get_current_price(symbol):
+async def get_current_price(query):
     from crypto_list import TELEGRAM_WALLET_COIN_IDS
 
+    # Определяем: это CoinGecko ID или символ
     coin_id = None
-    for id_, sym in TELEGRAM_WALLET_COIN_IDS.items():
-        if sym.lower() == symbol.lower():
-            coin_id = id_
-            break
+    if query in TELEGRAM_WALLET_COIN_IDS:
+        coin_id = query
+    else:
+        for id_, sym in TELEGRAM_WALLET_COIN_IDS.items():
+            if sym.lower() == query.lower():
+                coin_id = id_
+                break
 
     if not coin_id:
+        logging.error(f"❌ Монета {query} не найдена в TELEGRAM_WALLET_COIN_IDS")
         return None
 
-    coins = await get_all_coin_data([coin_id])
-    if coins and coins[0]:
-        return coins[0].get("current_price")
+    # До 3 попыток получить цену
+    attempts = 0
+    while attempts < 3:
+        coins = await get_all_coin_data([coin_id])
+        if coins and coins[0] and coins[0].get("current_price") is not None:
+            price = coins[0].get("current_price")
+            logging.info(f"📌 Цена для {query.upper()} получена: {price}")
+            return price
+        attempts += 1
+        logging.warning(f"⚠️ Попытка {attempts} не удалась для {query.upper()}, повтор через 15 сек")
+        await asyncio.sleep(15)
+
+    logging.error(f"❌ Не удалось получить цену для {query.upper()} после 3 попыток")
     return None
