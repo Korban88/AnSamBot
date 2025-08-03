@@ -4,7 +4,8 @@ from handlers import (
     start_handler,
     button_handler,
     handle_text_message,
-    analyze_command_handler
+    analyze_command_handler,
+    show_tracking_handler  # добавили
 )
 from utils import schedule_daily_signal_check
 from scheduler import schedule_signal_refresh
@@ -16,10 +17,11 @@ async def main():
     app.add_handler(start_handler)
     app.add_handler(analyze_command_handler)
     app.add_handler(button_handler)
+    app.add_handler(show_tracking_handler)  # добавили
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text_message))
 
     schedule_daily_signal_check(app, OWNER_ID)
-    schedule_signal_refresh(app)   # теперь передаем app
+    schedule_signal_refresh(app)
 
     print("🚀 Бот запущен")
     await app.run_polling()
