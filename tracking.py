@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta
 from telegram.ext import ContextTypes
 from crypto_utils import get_current_price
+from crypto_list import TELEGRAM_WALLET_COIN_IDS
 import json
 import os
 import logging
@@ -12,19 +13,33 @@ class CoinTracker:
     tracked = {}
 
     @staticmethod
+    def get_coin_id(symbol):
+        """Находит CoinGecko ID по символу"""
+        for cid, sym in TELEGRAM_WALLET_COIN_IDS.items():
+            if sym.lower() == symbol.lower():
+                return cid
+        return None
+
+    @staticmethod
     def track(user_id, symbol, context: ContextTypes.DEFAULT_TYPE):
         now = datetime.utcnow()
+        coin_id = CoinTracker.get_coin_id(symbol)
+        if not coin_id:
+            logging.error(f"❌ Не найден CoinGecko ID для {symbol}")
+            return
+
         CoinTracker.tracked.setdefault(str(user_id), {})[symbol] = {
             "symbol": symbol,
+            "coin_id": coin_id,
             "start_time": now.isoformat(),
             "initial_price": None
         }
         CoinTracker.save_tracking_data()
-        logging.info(f"✅ Добавлено отслеживание: {symbol.upper()} для пользователя {user_id}")
+        logging.info(f"✅ Добавлено отслеживание: {symbol.upper()} (ID: {coin_id}) для пользователя {user_id}")
 
         # сразу пробуем подтянуть цену
         async def set_initial_price():
-            price = await get_current_price(symbol)
+            price = await get_current_price(coin_id)
             if price:
                 CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = price
                 CoinTracker.save_tracking_data()
@@ -32,7 +47,7 @@ class CoinTracker:
             else:
                 logging.warning(f"⚠️ Не удалось сразу получить цену для {symbol.upper()}, повторим через 30 сек")
                 await asyncio.sleep(30)
-                price_retry = await get_current_price(symbol)
+                price_retry = await get_current_price(coin_id)
                 if price_retry:
                     CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = price_retry
                     CoinTracker.save_tracking_data()
@@ -48,9 +63,14 @@ class CoinTracker:
         await asyncio.sleep(10)
         start_time = datetime.utcnow()
 
+        coin_id = CoinTracker.tracked[str(user_id)][symbol].get("coin_id")
+        if not coin_id:
+            logging.error(f"❌ Монета {symbol.upper()} без coin_id — мониторинг невозможен")
+            return
+
         initial_price = CoinTracker.tracked[str(user_id)][symbol].get("initial_price")
         if not initial_price:
-            initial_price = await get_current_price(symbol)
+            initial_price = await get_current_price(coin_id)
             if initial_price:
                 CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = initial_price
                 CoinTracker.save_tracking_data()
@@ -59,7 +79,7 @@ class CoinTracker:
         while True:
             await asyncio.sleep(600)  # каждые 10 минут
 
-            current_price = await get_current_price(symbol)
+            current_price = await get_current_price(coin_id)
             if current_price is None or not initial_price:
                 continue
 
@@ -127,7 +147,8 @@ class CoinTracker:
                 continue
             report_lines = ["📊 Вечерний отчёт:"]
             for symbol, data in coins.items():
-                current_price = await get_current_price(symbol)
+                coin_id = data.get("coin_id")
+                current_price = await get_current_price(coin_id)
                 if not current_price or not data.get("initial_price"):
                     logging.warning(f"⚠️ Нет данных для {symbol.upper()} в отчёте")
                     continue
