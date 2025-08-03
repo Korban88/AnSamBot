@@ -13,7 +13,7 @@ class CoinTracker:
     @staticmethod
     def track(user_id, symbol, context: ContextTypes.DEFAULT_TYPE):
         now = datetime.utcnow()
-        CoinTracker.tracked[user_id] = {
+        CoinTracker.tracked.setdefault(str(user_id), {})[symbol] = {
             "symbol": symbol,
             "start_time": now.isoformat(),
             "initial_price": None
@@ -23,12 +23,11 @@ class CoinTracker:
 
     @staticmethod
     async def monitor(user_id, symbol, context: ContextTypes.DEFAULT_TYPE):
-        await asyncio.sleep(10)  # чтобы не вызывалось мгновенно
+        await asyncio.sleep(10)
         start_time = datetime.utcnow()
 
-        # Получаем стартовую цену
         initial_price = await get_current_price(symbol)
-        CoinTracker.tracked[user_id]["initial_price"] = initial_price
+        CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = initial_price
         CoinTracker.save_tracking_data()
 
         while True:
@@ -45,7 +44,7 @@ class CoinTracker:
                     chat_id=user_id,
                     text=f"🚀 {symbol.upper()} выросла на +5%!\nТекущая цена: ${current_price:.4f}"
                 )
-                CoinTracker.tracked.pop(user_id, None)
+                CoinTracker.tracked[str(user_id)].pop(symbol, None)
                 CoinTracker.save_tracking_data()
                 break
 
@@ -55,14 +54,13 @@ class CoinTracker:
                     text=f"🔔 {symbol.upper()} приближается к цели (+3.5%). Текущая цена: ${current_price:.4f}"
                 )
 
-            # проверка 12 часов
             elapsed = datetime.utcnow() - start_time
             if elapsed >= timedelta(hours=12):
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=f"⚠️ С момента отслеживания прошло 12 часов.\nИзменение цены {symbol.upper()}: {percent_change:.2f}%"
                 )
-                CoinTracker.tracked.pop(user_id, None)
+                CoinTracker.tracked[str(user_id)].pop(symbol, None)
                 CoinTracker.save_tracking_data()
                 break
 
@@ -83,8 +81,24 @@ class CoinTracker:
                 CoinTracker.tracked = json.load(f)
 
     @staticmethod
+    async def evening_report(context: ContextTypes.DEFAULT_TYPE):
+        CoinTracker.load_tracking_data()
+        for user_id, coins in CoinTracker.tracked.items():
+            if not coins:
+                continue
+            report_lines = ["📊 Вечерний отчёт:"]
+            for symbol, data in coins.items():
+                current_price = await get_current_price(symbol)
+                if not current_price or not data.get("initial_price"):
+                    continue
+                percent_change = ((current_price - data["initial_price"]) / data["initial_price"]) * 100
+                report_lines.append(f"{symbol.upper()} — {percent_change:.2f}%")
+            if len(report_lines) > 1:
+                await context.bot.send_message(chat_id=int(user_id), text="\n".join(report_lines))
+
+    @staticmethod
     def run(context: ContextTypes.DEFAULT_TYPE):
         CoinTracker.load_tracking_data()
-        for user_id, data in CoinTracker.tracked.items():
-            symbol = data["symbol"]
-            asyncio.create_task(CoinTracker.monitor(user_id, symbol, context))
+        for user_id, coins in CoinTracker.tracked.items():
+            for symbol in coins.keys():
+                asyncio.create_task(CoinTracker.monitor(int(user_id), symbol, context))
