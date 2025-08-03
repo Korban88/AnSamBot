@@ -37,6 +37,28 @@ def format_volume(volume):
         return str(volume)
 
 
+def get_deposit_advice(prob):
+    """Возвращает совет по размеру депозита на сделку"""
+    if prob >= 85:
+        return "💰 Совет: можно вложить до 35% депозита (очень сильный сигнал)"
+    elif prob >= 75:
+        return "💰 Совет: не более 25% депозита (сильный сигнал)"
+    else:
+        return "💰 Совет: не более 15–20% депозита (умеренный сигнал)"
+
+
+def growth_comment(change_24h):
+    """Возвращает пояснение к росту за 24ч"""
+    if change_24h >= 10:
+        return f"{change_24h}% 🚀 (очень высокий, возможен перегрев)"
+    elif change_24h >= 5:
+        return f"{change_24h}% ✅ (хороший импульс)"
+    elif change_24h >= 2:
+        return f"{change_24h}% (умеренный, безопасный)"
+    else:
+        return f"{change_24h}% ⚠️ (слабый рост)"
+
+
 def evaluate_coin(coin):
     rsi = safe_float(coin.get("rsi"))
     ma7 = safe_float(coin.get("ma7"))
@@ -66,9 +88,9 @@ def evaluate_coin(coin):
     # Change 24h check
     if change_24h >= 2.5:
         score += 1
-        reasons.append(f"✓ Рост за 24ч {change_24h}%")
+        reasons.append(f"✓ Рост за 24ч {growth_comment(change_24h)}")
     else:
-        reasons.append(f"✗ Рост за 24ч {change_24h}% (мало)")
+        reasons.append(f"✗ Рост за 24ч {growth_comment(change_24h)}")
 
     # Weekly trend check
     if change_7d is not None:
@@ -128,14 +150,14 @@ async def analyze_cryptos(fallback=True):
 
         try:
             score, prob, reasons = evaluate_coin(coin)
-        except Exception as e:
+        except Exception:
             continue
 
         if score >= 4:
             passed += 1
             coin["score"] = score
             coin["probability"] = prob
-            coin["reasons"] = reasons
+            coin["reasons"] = reasons + [get_deposit_advice(prob)]
             coin["current_price"] = round_price(safe_float(coin.get("current_price")))
             coin["price_change_percentage_24h"] = round(safe_float(coin.get("price_change_percentage_24h")), 2)
             candidates.append(coin)
@@ -153,7 +175,7 @@ async def analyze_cryptos(fallback=True):
             "current_price": coin["current_price"],
             "price_change_percentage_24h": coin["price_change_percentage_24h"],
             "probability": coin["probability"],
-            "reasons": coin["reasons"] + ["💰 Совет: не более 20% депозита на сделку"],
+            "reasons": coin["reasons"],
             "safe": True
         }
         top_signals.append(signal)
@@ -167,14 +189,14 @@ async def analyze_cryptos(fallback=True):
             change = round(safe_float(fallback_coin.get("price_change_percentage_24h")), 2)
             volume = safe_float(fallback_coin.get("total_volume", 0))
 
-            if price and change and volume >= 5_000_000:
+            if price and change and volume >= 3_000_000:
                 top_signals.append({
                     "id": fallback_coin["id"],
                     "symbol": fallback_coin["symbol"],
                     "current_price": price,
                     "price_change_percentage_24h": change,
                     "probability": 65.0,
-                    "reasons": ["⚠️ Fallback: рискованный выбор (нет идеальных монет)"],
+                    "reasons": ["⚠️ Fallback: рискованный выбор (нет идеальных монет)", get_deposit_advice(65)],
                     "safe": False
                 })
                 break
