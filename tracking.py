@@ -14,7 +14,6 @@ class CoinTracker:
 
     @staticmethod
     def get_coin_id(symbol):
-        """Находит CoinGecko ID по символу"""
         for cid, sym in TELEGRAM_WALLET_COIN_IDS.items():
             if sym.lower() == symbol.lower():
                 return cid
@@ -35,25 +34,24 @@ class CoinTracker:
             "initial_price": None
         }
         CoinTracker.save_tracking_data()
-        logging.info(f"✅ Добавлено отслеживание: {symbol.upper()} (ID: {coin_id}) для пользователя {user_id}")
+        logging.info(f"✅ Добавлено отслеживание: {symbol.upper()} (ID: {coin_id})")
 
         # сразу пробуем подтянуть цену
         async def set_initial_price():
-            price = await get_current_price(coin_id)
-            if price:
-                CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = price
-                CoinTracker.save_tracking_data()
-                logging.info(f"📌 Начальная цена {symbol.upper()} установлена сразу: {price}")
-            else:
-                logging.warning(f"⚠️ Не удалось сразу получить цену для {symbol.upper()}, повторим через 30 сек")
-                await asyncio.sleep(30)
-                price_retry = await get_current_price(coin_id)
-                if price_retry:
-                    CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = price_retry
+            attempts = 0
+            while attempts < 3:
+                price = await get_current_price(coin_id)
+                if price:
+                    CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = price
                     CoinTracker.save_tracking_data()
-                    logging.info(f"📌 Цена {symbol.upper()} успешно получена повторно: {price_retry}")
-                else:
-                    logging.error(f"❌ Не удалось получить цену для {symbol.upper()} даже после повторной попытки")
+                    logging.info(f"📌 Начальная цена {symbol.upper()} установлена: {price}")
+                    return
+                attempts += 1
+                logging.warning(f"⚠️ Попытка {attempts} не удалась для {symbol.upper()}, пробуем снова...")
+                await asyncio.sleep(20)
+            CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = "fetch_error"
+            CoinTracker.save_tracking_data()
+            logging.error(f"❌ Не удалось получить цену для {symbol.upper()} после 3 попыток")
 
         asyncio.create_task(set_initial_price())
         asyncio.create_task(CoinTracker.monitor(user_id, symbol, context))
@@ -69,7 +67,7 @@ class CoinTracker:
             return
 
         initial_price = CoinTracker.tracked[str(user_id)][symbol].get("initial_price")
-        if not initial_price:
+        if not initial_price or initial_price == "fetch_error":
             initial_price = await get_current_price(coin_id)
             if initial_price:
                 CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = initial_price
@@ -80,7 +78,7 @@ class CoinTracker:
             await asyncio.sleep(600)  # каждые 10 минут
 
             current_price = await get_current_price(coin_id)
-            if current_price is None or not initial_price:
+            if current_price is None or not initial_price or initial_price == "fetch_error":
                 continue
 
             percent_change = ((current_price - initial_price) / initial_price) * 100
@@ -149,12 +147,11 @@ class CoinTracker:
             for symbol, data in coins.items():
                 coin_id = data.get("coin_id")
                 current_price = await get_current_price(coin_id)
-                if not current_price or not data.get("initial_price"):
+                if not current_price or not data.get("initial_price") or data["initial_price"] == "fetch_error":
                     logging.warning(f"⚠️ Нет данных для {symbol.upper()} в отчёте")
                     continue
                 percent_change = ((current_price - data["initial_price"]) / data["initial_price"]) * 100
 
-                # Определяем рекомендацию
                 if percent_change >= 4.5:
                     status = "🚀 почти у цели — можно зафиксировать"
                 elif percent_change >= 3.5:
