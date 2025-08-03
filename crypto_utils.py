@@ -78,7 +78,7 @@ async def fetch_historical_prices(coin_id, days=30):
             return []
 
 async def fetch_all_coin_data(coin_ids):
-    """Получает данные с CoinGecko чанками по 45 монет"""
+    """Получает данные с CoinGecko чанками по 45 монет с защитой от 429"""
     results = []
     chunk_size = 45
     async with aiohttp.ClientSession() as session:
@@ -90,12 +90,25 @@ async def fetch_all_coin_data(coin_ids):
                 "ids": ",".join(chunk),
                 "price_change_percentage": "24h,7d"
             }
-            async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    results.extend(data)
-                else:
-                    logging.warning(f"⚠️ Ошибка API {response.status} для монет: {chunk}")
+
+            attempts = 0
+            while attempts < 3:
+                async with session.get(url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        results.extend(data)
+                        break
+                    elif response.status == 429:
+                        attempts += 1
+                        wait_time = 10 * attempts
+                        logging.warning(f"⚠️ Ошибка API 429. Ждём {wait_time} сек и повторяем... (попытка {attempts})")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        logging.error(f"❌ Ошибка API {response.status} для монет: {chunk}")
+                        break
+
+            await asyncio.sleep(2)  # пауза между чанками
+
     return results
 
 async def get_all_coin_data(coin_ids):
@@ -113,7 +126,7 @@ async def get_all_coin_data(coin_ids):
         cached = INDICATOR_CACHE.get(coin_id, {})
         timestamp = cached.get("timestamp")
         now = datetime.utcnow()
-        is_fresh = timestamp and (now - datetime.fromisoformat(timestamp)) < timedelta(hours=1)
+        is_fresh = timestamp and (now - datetime.fromisoformat(timestamp)) < timedelta(minutes=30)
 
         if is_fresh:
             rsi = safe_float(cached.get("rsi"))
