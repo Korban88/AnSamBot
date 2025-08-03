@@ -8,6 +8,7 @@ from utils import (
     manual_refresh_signals
 )
 from tracking import CoinTracker
+from crypto_utils import get_current_price
 import json
 import os
 
@@ -82,14 +83,24 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # 🔍 Команда для проверки tracking_data.json
 async def show_tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if os.path.exists("tracking_data.json"):
-        with open("tracking_data.json", "r") as f:
-            data = json.load(f)
-        if data:
-            await update.message.reply_text(f"📂 Текущие отслеживания:\n{json.dumps(data, indent=2)}")
-        else:
-            await update.message.reply_text("⚠️ Отслеживания пусты.")
-    else:
-        await update.message.reply_text("⚠️ Файл tracking_data.json не найден.")
+    CoinTracker.load_tracking_data()
+    data = CoinTracker.tracked.get(str(update.effective_user.id), {})
+    if not data:
+        await update.message.reply_text("⚠️ Нет активных отслеживаний.")
+        return
+
+    report_lines = ["📂 Текущие отслеживания:"]
+    for symbol, details in data.items():
+        initial = details.get("initial_price")
+        coin_id = details.get("coin_id")
+        if not initial or initial == "fetch_error":
+            current = await get_current_price(coin_id)
+            if current:
+                details["initial_price"] = current
+                CoinTracker.save_tracking_data()
+                initial = current
+        report_lines.append(f"{symbol.upper()} | Цена входа: {initial} | Время: {details.get('start_time')}")
+
+    await update.message.reply_text("\n".join(report_lines))
 
 show_tracking_handler = CommandHandler("show_tracking", show_tracking)
