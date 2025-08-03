@@ -1,6 +1,6 @@
 TELEGRAM_WALLET_COIN_IDS = {
     "0x": "zrx",
-    "1inch": "1inch",
+    "1inch-network": "1inch",    # заменено с "1inch"
     "act-ai": "act",
     "aethir": "ath",
     "aevo": "aevo",
@@ -29,7 +29,7 @@ TELEGRAM_WALLET_COIN_IDS = {
     "dogs": "dogs",
     "dydx": "dydx",
     "ecash": "xec",
-    "eigenlayer": "eigen",
+    "eigencloud": "eigen",       # заменено с "eigenlayer"
     "enjincoin": "enj",
     "eos": "eos",
     "everipedia": "iq",
