@@ -26,6 +26,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 start_handler = CommandHandler("start", start)
 
+
 async def analyze_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await manual_refresh_signals(update.effective_user.id, context)
 
@@ -33,6 +34,7 @@ analyze_command_handler = CommandHandler("analyze", analyze_handler)
 
 debug_handler = CommandHandler("debug_cache", lambda update, context: debug_cache_message(update.effective_user.id, context))
 debug_analysis_handler = CommandHandler("debug_analysis", lambda update, context: debug_analysis_message(update.effective_user.id, context))
+
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -42,8 +44,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data.startswith("track_"):
         symbol = query.data.split("_", 1)[1]
         CoinTracker.track(user_id, symbol, context)
-        await query.edit_message_text(f"✅ Монета {symbol.upper()} добавлена в отслеживание.\n"
-                                      f"Вечером вы получите отчёт о её динамике.")
+        # Отправляем новое сообщение вместо редактирования старого
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"✅ Монета {symbol.upper()} добавлена в отслеживание.\n"
+                 f"Вечером вы получите отчёт о её динамике."
+        )
 
 button_handler = CallbackQueryHandler(button_callback)
 
