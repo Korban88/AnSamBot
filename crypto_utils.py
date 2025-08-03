@@ -16,7 +16,7 @@ else:
 
 def save_cache():
     with open(CACHE_PATH, "w") as f:
-        json.dump(INDICATOR_CACHE, f)
+        json.dump(INDICATOR_CACHE, f, indent=2)
 
 def safe_float(value, default=0.0):
     try:
@@ -141,7 +141,8 @@ async def get_all_coin_data(coin_ids):
                 "rsi": rsi,
                 "ma7": ma7,
                 "ma30": ma30,
-                "timestamp": now.isoformat()
+                "timestamp": now.isoformat(),
+                "price": current_price
             }
 
         coin["current_price"] = current_price
@@ -191,17 +192,30 @@ async def get_current_price(query):
         logging.error(f"❌ Монета {query} не найдена в TELEGRAM_WALLET_COIN_IDS")
         return None
 
-    # До 3 попыток получить цену
+    # 1. Проверка кеша (свежий — моложе 15 минут)
+    cached = INDICATOR_CACHE.get(coin_id, {})
+    timestamp = cached.get("timestamp")
+    now = datetime.utcnow()
+    if timestamp and (now - datetime.fromisoformat(timestamp)) < timedelta(minutes=15):
+        if cached.get("price"):
+            logging.info(f"📌 Цена {query.upper()} взята из кеша: {cached['price']}")
+            return cached["price"]
+
+    # 2. Попробуем запросы (до 3 попыток)
     attempts = 0
     while attempts < 3:
         coins = await get_all_coin_data([coin_id])
         if coins and coins[0] and coins[0].get("current_price") is not None:
             price = coins[0].get("current_price")
-            logging.info(f"📌 Цена для {query.upper()} получена: {price}")
+            INDICATOR_CACHE[coin_id]["price"] = price
+            INDICATOR_CACHE[coin_id]["timestamp"] = now.isoformat()
+            save_cache()
+            logging.info(f"📌 Цена для {query.upper()} обновлена: {price}")
             return price
         attempts += 1
-        logging.warning(f"⚠️ Попытка {attempts} не удалась для {query.upper()}, повтор через 15 сек")
-        await asyncio.sleep(15)
+        wait_time = 5 * attempts
+        logging.warning(f"⚠️ Попытка {attempts} не удалась для {query.upper()}, повтор через {wait_time} сек")
+        await asyncio.sleep(wait_time)
 
     logging.error(f"❌ Не удалось получить цену для {query.upper()} после 3 попыток")
-    return None
+    return cached.get("price")  # fallback: хотя бы кеш
