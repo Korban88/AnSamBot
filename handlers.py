@@ -9,7 +9,6 @@ from utils import (
 )
 from tracking import CoinTracker
 
-# Панель снизу (ReplyKeyboard)
 reply_keyboard = [
     [KeyboardButton("📈 Получить сигнал")],
     [KeyboardButton("🔁 Обновить сигналы"), KeyboardButton("🔁 Сбросить кеш")],
@@ -19,14 +18,12 @@ reply_keyboard = [
 reply_markup = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
 
 
-# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Добро пожаловать в новую жизнь, Корбан!",
         reply_markup=reply_markup
     )
 
-# ✅ Объекты, которые main.py будет импортировать
 start_handler = CommandHandler("start", start)
 
 async def analyze_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -34,13 +31,9 @@ async def analyze_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 analyze_command_handler = CommandHandler("analyze", analyze_handler)
 
-
-# Debug команды
 debug_handler = CommandHandler("debug_cache", lambda update, context: debug_cache_message(update.effective_user.id, context))
 debug_analysis_handler = CommandHandler("debug_analysis", lambda update, context: debug_analysis_message(update.effective_user.id, context))
 
-
-# Inline кнопки
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -49,12 +42,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data.startswith("track_"):
         symbol = query.data.split("_", 1)[1]
         CoinTracker.track(user_id, symbol, context)
-        await query.edit_message_text(f"🔔 Монета {symbol.upper()} добавлена в отслеживание.")
+        await query.edit_message_text(f"✅ Монета {symbol.upper()} добавлена в отслеживание.\n"
+                                      f"Вечером вы получите отчёт о её динамике.")
 
 button_handler = CallbackQueryHandler(button_callback)
 
 
-# Reply кнопки
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     user_id = update.effective_user.id
