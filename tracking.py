@@ -4,6 +4,7 @@ from telegram.ext import ContextTypes
 from crypto_utils import get_current_price
 import json
 import os
+import logging
 
 TRACKING_FILE = "tracking_data.json"
 
@@ -19,6 +20,7 @@ class CoinTracker:
             "initial_price": None
         }
         CoinTracker.save_tracking_data()
+        logging.info(f"✅ Добавлено отслеживание: {symbol.upper()} для пользователя {user_id}")
         asyncio.create_task(CoinTracker.monitor(user_id, symbol, context))
 
     @staticmethod
@@ -27,8 +29,12 @@ class CoinTracker:
         start_time = datetime.utcnow()
 
         initial_price = await get_current_price(symbol)
-        CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = initial_price
-        CoinTracker.save_tracking_data()
+        if initial_price is not None:
+            CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = initial_price
+            CoinTracker.save_tracking_data()
+            logging.info(f"📌 Стартовая цена {symbol.upper()} = {initial_price}")
+        else:
+            logging.warning(f"⚠️ Не удалось получить цену для {symbol.upper()} при старте отслеживания")
 
         while True:
             await asyncio.sleep(600)  # каждые 10 минут
@@ -68,17 +74,30 @@ class CoinTracker:
     def clear_all():
         CoinTracker.tracked.clear()
         CoinTracker.save_tracking_data()
+        logging.info("⛔ Все отслеживания удалены")
 
     @staticmethod
     def save_tracking_data():
-        with open(TRACKING_FILE, "w") as f:
-            json.dump(CoinTracker.tracked, f)
+        try:
+            with open(TRACKING_FILE, "w") as f:
+                json.dump(CoinTracker.tracked, f, indent=2)
+            logging.info(f"💾 Сохранены отслеживания: {CoinTracker.tracked}")
+        except Exception as e:
+            logging.error(f"❌ Ошибка при сохранении tracking_data.json: {e}")
 
     @staticmethod
     def load_tracking_data():
         if os.path.exists(TRACKING_FILE):
-            with open(TRACKING_FILE, "r") as f:
-                CoinTracker.tracked = json.load(f)
+            try:
+                with open(TRACKING_FILE, "r") as f:
+                    CoinTracker.tracked = json.load(f)
+                logging.info(f"📂 Загружено отслеживаний: {CoinTracker.tracked}")
+            except Exception as e:
+                logging.error(f"❌ Ошибка при загрузке tracking_data.json: {e}")
+                CoinTracker.tracked = {}
+        else:
+            CoinTracker.tracked = {}
+            logging.info("⚠️ tracking_data.json не найден — старт с пустого списка")
 
     @staticmethod
     async def evening_report(context: ContextTypes.DEFAULT_TYPE):
@@ -90,6 +109,7 @@ class CoinTracker:
             for symbol, data in coins.items():
                 current_price = await get_current_price(symbol)
                 if not current_price or not data.get("initial_price"):
+                    logging.warning(f"⚠️ Нет данных для {symbol.upper()} в отчёте")
                     continue
                 percent_change = ((current_price - data["initial_price"]) / data["initial_price"]) * 100
 
@@ -103,10 +123,11 @@ class CoinTracker:
                 else:
                     status = "ℹ️ умеренное движение — держать"
 
-                report_lines.append(f"{symbol.upper()} — {percent_change:.2f}% | {status}")
+                report_lines.append(f"{symbol.upper()} — {percent_change:.2f}% | {status} (цена: ${current_price:.4f})")
 
             if len(report_lines) > 1:
                 await context.bot.send_message(chat_id=int(user_id), text="\n".join(report_lines))
+                logging.info(f"✅ Вечерний отчёт отправлен пользователю {user_id}")
 
     @staticmethod
     def run(context: ContextTypes.DEFAULT_TYPE):
