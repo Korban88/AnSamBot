@@ -50,11 +50,11 @@ def evaluate_coin(coin):
     score = 0
 
     # RSI check
-    if 50 <= rsi <= 60:
+    if 52 <= rsi <= 60:
         score += 1
         reasons.append(f"✓ RSI {rsi} (в норме)")
     else:
-        reasons.append(f"✗ RSI {rsi} (вне диапазона 50–60)")
+        reasons.append(f"✗ RSI {rsi} (вне диапазона 52–60)")
 
     # MA7 check
     if ma7 > 0 and price > ma7:
@@ -75,29 +75,28 @@ def evaluate_coin(coin):
         if change_7d > 0:
             score += 1
             reasons.append(f"✓ Тренд за 7д {change_7d}%")
-        elif change_7d < 0:
-            reasons.append(f"✗ Тренд за 7д {change_7d}% (просадка)")
         else:
-            reasons.append("⚠️ Данные по 7д отсутствуют")
+            reasons.append(f"✗ Тренд за 7д {change_7d}% (просадка)")
     else:
         reasons.append("⚠️ Данные по 7д отсутствуют")
 
     # Volume check
-    if volume >= 5_000_000:
+    if 5_000_000 <= volume <= 100_000_000:
         score += 1
         reasons.append(f"✓ Объём {format_volume(volume)}")
     else:
-        reasons.append(f"✗ Объём {format_volume(volume)} (<5M)")
+        reasons.append(f"✗ Объём {format_volume(volume)} (не в диапазоне)")
 
-    # Probability (более реалистичная)
-    rsi_weight = 1 if 50 <= rsi <= 60 else 0
+    # Probability (реалистичная)
+    rsi_weight = 1 if 52 <= rsi <= 60 else 0
     ma_weight = 1 if ma7 > 0 and price > ma7 else 0
     change_weight = min(change_24h / 6, 1) if change_24h > 0 else 0
-    volume_weight = 1 if volume >= 10_000_000 else 0.5 if volume >= 5_000_000 else 0
+    volume_weight = 1 if 10_000_000 <= volume <= 100_000_000 else 0.5 if volume >= 5_000_000 else 0
     trend_weight = 1 if change_7d and change_7d > 0 else 0
 
-    prob = 65 + (rsi_weight + ma_weight + change_weight + volume_weight + trend_weight) * 3.5
-    prob = round(min(prob, 90), 2)
+    base_prob = 60
+    prob = base_prob + (rsi_weight + ma_weight + change_weight + volume_weight + trend_weight) * 5
+    prob = round(min(prob, 92), 2)
 
     return score, prob, reasons
 
@@ -123,8 +122,6 @@ async def analyze_cryptos(fallback=True):
 
     for coin in all_data:
         coin_id = coin.get("id", "")
-        symbol = coin.get("symbol", "?").upper()
-
         if coin_id in EXCLUDE_IDS:
             excluded += 1
             continue
@@ -156,7 +153,7 @@ async def analyze_cryptos(fallback=True):
             "current_price": coin["current_price"],
             "price_change_percentage_24h": coin["price_change_percentage_24h"],
             "probability": coin["probability"],
-            "reasons": coin["reasons"],
+            "reasons": coin["reasons"] + ["💰 Совет: не более 20% депозита на сделку"],
             "safe": True
         }
         top_signals.append(signal)
@@ -184,8 +181,8 @@ async def analyze_cryptos(fallback=True):
 
     ANALYSIS_LOG.append(
         f"📊 Статистика анализа: получено {len(all_data)} из {len(coin_ids)}, "
-        f"прошло фильтр {passed}, не прошло {len(all_data) - passed - excluded}, "
-        f"без данных {no_data}, исключено {excluded}"
+        f"прошло фильтр {passed}, без данных {no_data}, исключено {excluded}, "
+        f"не прошло {len(all_data) - passed - excluded}"
     )
 
     return top_signals
