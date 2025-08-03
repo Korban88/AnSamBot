@@ -92,7 +92,19 @@ class CoinTracker:
                 if not current_price or not data.get("initial_price"):
                     continue
                 percent_change = ((current_price - data["initial_price"]) / data["initial_price"]) * 100
-                report_lines.append(f"{symbol.upper()} — {percent_change:.2f}%")
+
+                # Определяем рекомендацию
+                if percent_change >= 4.5:
+                    status = "🚀 почти у цели — можно зафиксировать"
+                elif percent_change >= 3.5:
+                    status = "✅ близко к цели — держать"
+                elif percent_change <= -2:
+                    status = "⚠️ близко к стоп-лоссу — подумай о выходе"
+                else:
+                    status = "ℹ️ умеренное движение — держать"
+
+                report_lines.append(f"{symbol.upper()} — {percent_change:.2f}% | {status}")
+
             if len(report_lines) > 1:
                 await context.bot.send_message(chat_id=int(user_id), text="\n".join(report_lines))
 
