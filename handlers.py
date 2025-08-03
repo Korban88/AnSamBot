@@ -8,6 +8,8 @@ from utils import (
     manual_refresh_signals
 )
 from tracking import CoinTracker
+import json
+import os
 
 reply_keyboard = [
     [KeyboardButton("📈 Получить сигнал")],
@@ -44,7 +46,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data.startswith("track_"):
         symbol = query.data.split("_", 1)[1]
         CoinTracker.track(user_id, symbol, context)
-        # Отправляем новое сообщение вместо редактирования старого
         await context.bot.send_message(
             chat_id=user_id,
             text=f"✅ Монета {symbol.upper()} добавлена в отслеживание.\n"
@@ -77,3 +78,18 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             "✉️ Напиши 'сигнал', 'анализ', 'кеш' или 'сброс'.",
             reply_markup=reply_markup
         )
+
+
+# 🔍 Команда для проверки tracking_data.json
+async def show_tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if os.path.exists("tracking_data.json"):
+        with open("tracking_data.json", "r") as f:
+            data = json.load(f)
+        if data:
+            await update.message.reply_text(f"📂 Текущие отслеживания:\n{json.dumps(data, indent=2)}")
+        else:
+            await update.message.reply_text("⚠️ Отслеживания пусты.")
+    else:
+        await update.message.reply_text("⚠️ Файл tracking_data.json не найден.")
+
+show_tracking_handler = CommandHandler("show_tracking", show_tracking)
