@@ -20,7 +20,8 @@ reply_keyboard = [
     [KeyboardButton("📈 Получить сигнал")],
     [KeyboardButton("🔁 Обновить сигналы"), KeyboardButton("🔁 Сбросить кеш")],
     [KeyboardButton("⛔ Остановить все отслеживания")],
-    [KeyboardButton("📦 Кеш сигналов"), KeyboardButton("📊 Анализ монет")]
+    [KeyboardButton("📦 Кеш сигналов"), KeyboardButton("📊 Анализ монет")],
+    [KeyboardButton("📂 Мои отслеживания")]  # ✅ новая кнопка
 ]
 reply_markup = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
 
@@ -78,9 +79,11 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif "стоп" in text or "отмена" in text:
         CoinTracker.clear_all()
         await update.message.reply_text("⛔ Все отслеживания остановлены.", reply_markup=reply_markup)
+    elif "мои отслеживания" in text:  # ✅ новая логика кнопки
+        await show_tracking(update, context)
     else:
         await update.message.reply_text(
-            "✉️ Напиши 'сигнал', 'анализ', 'кеш' или 'сброс'.",
+            "✉️ Напиши 'сигнал', 'анализ', 'кеш', 'мои отслеживания' или 'сброс'.",
             reply_markup=reply_markup
         )
 
