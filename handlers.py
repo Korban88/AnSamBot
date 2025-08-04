@@ -11,6 +11,10 @@ from tracking import CoinTracker
 from crypto_utils import get_current_price
 import json
 import os
+import pytz
+from datetime import datetime
+
+MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
 reply_keyboard = [
     [KeyboardButton("📈 Получить сигнал")],
@@ -99,7 +103,17 @@ async def show_tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 details["initial_price"] = current
                 CoinTracker.save_tracking_data()
                 initial = current
-        report_lines.append(f"{symbol.upper()} | Цена входа: {initial} | Время: {details.get('start_time')}")
+
+        # конвертация времени в МСК
+        try:
+            utc_time = datetime.fromisoformat(details.get("start_time"))
+            local_time = utc_time.astimezone(MOSCOW_TZ).strftime("%d.%m %H:%M")
+        except Exception:
+            local_time = details.get("start_time")
+
+        report_lines.append(
+            f"{symbol.upper()} | Цена входа: {initial} | Время: {local_time}"
+        )
 
     await update.message.reply_text("\n".join(report_lines))
 
