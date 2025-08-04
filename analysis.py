@@ -38,7 +38,6 @@ def format_volume(volume):
 
 
 def get_deposit_advice(prob):
-    """Возвращает совет по размеру депозита на сделку"""
     if prob >= 85:
         return "💰 Совет: можно вложить до 35% депозита (очень сильный сигнал)"
     elif prob >= 75:
@@ -48,7 +47,7 @@ def get_deposit_advice(prob):
 
 
 def growth_comment(change_24h):
-    """Возвращает пояснение к росту за 24ч"""
+    change_24h = round(change_24h, 2)  # округляем здесь
     if change_24h >= 10:
         return f"{change_24h}% 🚀 (очень высокий, возможен перегрев)"
     elif change_24h >= 5:
@@ -64,7 +63,7 @@ def evaluate_coin(coin):
     ma7 = safe_float(coin.get("ma7"))
     price = safe_float(coin.get("current_price"))
     change_24h = safe_float(coin.get("price_change_percentage_24h"))
-    change_7d = coin.get("price_change_percentage_7d")
+    change_7d = safe_float(coin.get("price_change_percentage_7d"))
     volume = safe_float(coin.get("total_volume"))
     symbol = coin.get("symbol", "?").upper()
 
@@ -74,16 +73,16 @@ def evaluate_coin(coin):
     # RSI check
     if 52 <= rsi <= 60:
         score += 1
-        reasons.append(f"✓ RSI {rsi} (в норме)")
+        reasons.append(f"✓ RSI {round(rsi, 1)} (в норме)")
     else:
-        reasons.append(f"✗ RSI {rsi} (вне диапазона 52–60)")
+        reasons.append(f"✗ RSI {round(rsi, 1)} (вне диапазона 52–60)")
 
     # MA7 check
     if ma7 > 0 and price > ma7:
         score += 1
-        reasons.append(f"✓ Цена выше MA7 ({ma7})")
+        reasons.append(f"✓ Цена выше MA7 ({round(ma7, 4)})")
     else:
-        reasons.append(f"✗ Цена ниже MA7 ({ma7})")
+        reasons.append(f"✗ Цена ниже MA7 ({round(ma7, 4)})")
 
     # Change 24h check
     if change_24h >= 2.5:
@@ -94,6 +93,7 @@ def evaluate_coin(coin):
 
     # Weekly trend check
     if change_7d is not None:
+        change_7d = round(change_7d, 2)  # округляем до 2 знаков
         if change_7d > 0:
             score += 1
             reasons.append(f"✓ Тренд за 7д {change_7d}%")
@@ -109,7 +109,7 @@ def evaluate_coin(coin):
     else:
         reasons.append(f"✗ Объём {format_volume(volume)} (не в диапазоне)")
 
-    # Probability (реалистичная)
+    # Probability
     rsi_weight = 1 if 52 <= rsi <= 60 else 0
     ma_weight = 1 if ma7 > 0 and price > ma7 else 0
     change_weight = min(change_24h / 6, 1) if change_24h > 0 else 0
