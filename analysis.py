@@ -47,7 +47,7 @@ def get_deposit_advice(prob):
 
 
 def growth_comment(change_24h):
-    change_24h = round(change_24h, 2)  # округляем здесь
+    change_24h = round(change_24h, 2)  # округляем всегда до 2 знаков
     if change_24h >= 10:
         return f"{change_24h}% 🚀 (очень высокий, возможен перегрев)"
     elif change_24h >= 5:
@@ -59,11 +59,13 @@ def growth_comment(change_24h):
 
 
 def evaluate_coin(coin):
-    rsi = safe_float(coin.get("rsi"))
-    ma7 = safe_float(coin.get("ma7"))
+    rsi = round(safe_float(coin.get("rsi")), 2)
+    ma7 = round(safe_float(coin.get("ma7")), 4)
     price = safe_float(coin.get("current_price"))
-    change_24h = safe_float(coin.get("price_change_percentage_24h"))
+    change_24h = round(safe_float(coin.get("price_change_percentage_24h")), 2)
     change_7d = safe_float(coin.get("price_change_percentage_7d"))
+    if change_7d is not None:
+        change_7d = round(change_7d, 2)
     volume = safe_float(coin.get("total_volume"))
     symbol = coin.get("symbol", "?").upper()
 
@@ -73,16 +75,16 @@ def evaluate_coin(coin):
     # RSI check
     if 52 <= rsi <= 60:
         score += 1
-        reasons.append(f"✓ RSI {round(rsi, 1)} (в норме)")
+        reasons.append(f"✓ RSI {rsi} (в норме)")
     else:
-        reasons.append(f"✗ RSI {round(rsi, 1)} (вне диапазона 52–60)")
+        reasons.append(f"✗ RSI {rsi} (вне диапазона 52–60)")
 
     # MA7 check
     if ma7 > 0 and price > ma7:
         score += 1
-        reasons.append(f"✓ Цена выше MA7 ({round(ma7, 4)})")
+        reasons.append(f"✓ Цена выше MA7 ({ma7})")
     else:
-        reasons.append(f"✗ Цена ниже MA7 ({round(ma7, 4)})")
+        reasons.append(f"✗ Цена ниже MA7 ({ma7})")
 
     # Change 24h check
     if change_24h >= 2.5:
@@ -93,7 +95,6 @@ def evaluate_coin(coin):
 
     # Weekly trend check
     if change_7d is not None:
-        change_7d = round(change_7d, 2)  # округляем до 2 знаков
         if change_7d > 0:
             score += 1
             reasons.append(f"✓ Тренд за 7д {change_7d}%")
