@@ -6,8 +6,10 @@ from crypto_list import TELEGRAM_WALLET_COIN_IDS
 import json
 import os
 import logging
+import pytz
 
 TRACKING_FILE = "tracking_data.json"
+MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
 class CoinTracker:
     tracked = {}
@@ -21,7 +23,7 @@ class CoinTracker:
 
     @staticmethod
     def track(user_id, symbol, context: ContextTypes.DEFAULT_TYPE):
-        now = datetime.utcnow()
+        now = datetime.now(MOSCOW_TZ)
         coin_id = CoinTracker.get_coin_id(symbol)
         if not coin_id:
             logging.error(f"❌ Не найден CoinGecko ID для {symbol}")
@@ -59,7 +61,7 @@ class CoinTracker:
     @staticmethod
     async def monitor(user_id, symbol, context: ContextTypes.DEFAULT_TYPE):
         await asyncio.sleep(10)
-        start_time = datetime.utcnow()
+        start_time = datetime.now(MOSCOW_TZ)
 
         coin_id = CoinTracker.tracked[str(user_id)][symbol].get("coin_id")
         if not coin_id:
@@ -98,7 +100,7 @@ class CoinTracker:
                     text=f"🔔 {symbol.upper()} приближается к цели (+3.5%). Текущая цена: ${current_price:.4f}"
                 )
 
-            elapsed = datetime.utcnow() - start_time
+            elapsed = datetime.now(MOSCOW_TZ) - start_time
             if elapsed >= timedelta(hours=12):
                 await context.bot.send_message(
                     chat_id=user_id,
@@ -161,7 +163,11 @@ class CoinTracker:
                 else:
                     status = "ℹ️ умеренное движение — держать"
 
-                report_lines.append(f"{symbol.upper()} — {percent_change:.2f}% | {status} (цена: ${current_price:.4f})")
+                start_time_local = datetime.fromisoformat(data["start_time"]).astimezone(MOSCOW_TZ)
+                report_lines.append(
+                    f"{symbol.upper()} — {percent_change:.2f}% | {status} "
+                    f"(цена: ${current_price:.4f}, старт: {start_time_local.strftime('%H:%M')})"
+                )
 
             if len(report_lines) > 1:
                 await context.bot.send_message(chat_id=int(user_id), text="\n".join(report_lines))
