@@ -33,12 +33,16 @@ class CoinTracker:
             "symbol": symbol,
             "coin_id": coin_id,
             "start_time": now.isoformat(),
-            "initial_price": None
+            "initial_price": None,
+            "notified_approaching_3_5": False,
+            "notified_reached_3_5": False,
+            "notified_reached_5": False,
+            "notified_near_stop_loss": False,
+            "notified_hit_stop_loss": False
         }
         CoinTracker.save_tracking_data()
         logging.info(f"✅ Добавлено отслеживание: {symbol.upper()} (ID: {coin_id})")
 
-        # сразу пробуем подтянуть цену
         async def set_initial_price():
             attempts = 0
             while attempts < 3:
@@ -65,7 +69,6 @@ class CoinTracker:
 
         coin_id = CoinTracker.tracked[str(user_id)][symbol].get("coin_id")
         if not coin_id:
-            logging.error(f"❌ Монета {symbol.upper()} без coin_id — мониторинг невозможен")
             return
 
         initial_price = CoinTracker.tracked[str(user_id)][symbol].get("initial_price")
@@ -74,31 +77,60 @@ class CoinTracker:
             if initial_price:
                 CoinTracker.tracked[str(user_id)][symbol]["initial_price"] = initial_price
                 CoinTracker.save_tracking_data()
-                logging.info(f"📌 (monitor) Цена {symbol.upper()} установлена: {initial_price}")
 
         while True:
-            await asyncio.sleep(600)  # каждые 10 минут
+            await asyncio.sleep(600)
 
             current_price = await get_current_price(coin_id)
             if current_price is None or not initial_price or initial_price == "fetch_error":
                 continue
 
             percent_change = ((current_price - initial_price) / initial_price) * 100
+            coin_data = CoinTracker.tracked[str(user_id)][symbol]
 
-            if percent_change >= 5:
+            if percent_change >= 5 and not coin_data["notified_reached_5"]:
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=f"🚀 {symbol.upper()} выросла на +5%!\nТекущая цена: ${current_price:.4f}"
                 )
+                coin_data["notified_reached_5"] = True
                 CoinTracker.tracked[str(user_id)].pop(symbol, None)
                 CoinTracker.save_tracking_data()
                 break
 
-            elif percent_change >= 3.5:
+            elif percent_change >= 3.5 and not coin_data["notified_reached_3_5"]:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"🎯 {symbol.upper()} достигла +3.5%!\nТекущая цена: ${current_price:.4f}"
+                )
+                coin_data["notified_reached_3_5"] = True
+                CoinTracker.save_tracking_data()
+
+            elif percent_change >= 3 and not coin_data["notified_approaching_3_5"]:
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=f"🔔 {symbol.upper()} приближается к цели (+3.5%). Текущая цена: ${current_price:.4f}"
                 )
+                coin_data["notified_approaching_3_5"] = True
+                CoinTracker.save_tracking_data()
+
+            elif percent_change <= -5 and not coin_data["notified_hit_stop_loss"]:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"🚨 {symbol.upper()} достигла стоп-лосса (−5%).\nТекущая цена: ${current_price:.4f}"
+                )
+                coin_data["notified_hit_stop_loss"] = True
+                CoinTracker.tracked[str(user_id)].pop(symbol, None)
+                CoinTracker.save_tracking_data()
+                break
+
+            elif percent_change <= -2 and not coin_data["notified_near_stop_loss"]:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"📉 {symbol.upper()} близка к стоп-лоссу (−2%).\nТекущая цена: ${current_price:.4f}"
+                )
+                coin_data["notified_near_stop_loss"] = True
+                CoinTracker.save_tracking_data()
 
             elapsed = datetime.now(MOSCOW_TZ) - start_time
             if elapsed >= timedelta(hours=12):
@@ -114,14 +146,12 @@ class CoinTracker:
     def clear_all():
         CoinTracker.tracked.clear()
         CoinTracker.save_tracking_data()
-        logging.info("⛔ Все отслеживания удалены")
 
     @staticmethod
     def save_tracking_data():
         try:
             with open(TRACKING_FILE, "w") as f:
                 json.dump(CoinTracker.tracked, f, indent=2)
-            logging.info(f"💾 Сохранены отслеживания: {CoinTracker.tracked}")
         except Exception as e:
             logging.error(f"❌ Ошибка при сохранении tracking_data.json: {e}")
 
@@ -131,13 +161,11 @@ class CoinTracker:
             try:
                 with open(TRACKING_FILE, "r") as f:
                     CoinTracker.tracked = json.load(f)
-                logging.info(f"📂 Загружено отслеживаний: {CoinTracker.tracked}")
             except Exception as e:
                 logging.error(f"❌ Ошибка при загрузке tracking_data.json: {e}")
                 CoinTracker.tracked = {}
         else:
             CoinTracker.tracked = {}
-            logging.info("⚠️ tracking_data.json не найден — старт с пустого списка")
 
     @staticmethod
     async def evening_report(context: ContextTypes.DEFAULT_TYPE):
@@ -150,7 +178,6 @@ class CoinTracker:
                 coin_id = data.get("coin_id")
                 current_price = await get_current_price(coin_id)
                 if not current_price or not data.get("initial_price") or data["initial_price"] == "fetch_error":
-                    logging.warning(f"⚠️ Нет данных для {symbol.upper()} в отчёте")
                     continue
                 percent_change = ((current_price - data["initial_price"]) / data["initial_price"]) * 100
 
@@ -171,7 +198,6 @@ class CoinTracker:
 
             if len(report_lines) > 1:
                 await context.bot.send_message(chat_id=int(user_id), text="\n".join(report_lines))
-                logging.info(f"✅ Вечерний отчёт отправлен пользователю {user_id}")
 
     @staticmethod
     def run(context: ContextTypes.DEFAULT_TYPE):
