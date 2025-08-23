@@ -1,5 +1,5 @@
 # config.py
-# Единая точка чтения ENV с дефолтами.
+# Конфиг с правильными именами, чтобы main.py и utils.py не падали.
 
 import os
 
@@ -22,20 +22,19 @@ def getenv_int(name: str, default: int) -> int:
         return default
 
 # === Базовые параметры бота ===
-BOT_TOKEN: str = os.getenv("BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
-OWNER_ID: int  = getenv_int("OWNER_ID", 347552741)  # твой Telegram ID (админ)
+TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
+OWNER_ID: int           = getenv_int("OWNER_ID", 347552741)  # твой Telegram ID (админ)
 
-# === Переключатели источников рынка/новостей ===
-ENABLE_FNG: bool  = getenv_bool("ENABLE_FNG", True)     # учитывать Fear & Greed
-ENABLE_NEWS: bool = getenv_bool("ENABLE_NEWS", True)    # учитывать новостной фон
+# === Переключатели анализа ===
+ENABLE_FNG: bool  = getenv_bool("ENABLE_FNG", True)
+ENABLE_NEWS: bool = getenv_bool("ENABLE_NEWS", True)
 
 # === Пороговые значения Fear & Greed ===
 FNG_EXTREME_GREED: int = getenv_int("FNG_EXTREME_GREED", 75)
 FNG_EXTREME_FEAR: int  = getenv_int("FNG_EXTREME_FEAR", 25)
 
 # === Рынок/защита (market guard) ===
-# если BTC за 24ч упал сильнее этого порога (в минус), сигналы отключаются
-MARKET_GUARD_BTC_DROP: float = getenv_float("MARKET_GUARD_BTC_DROP", 3.0)  # %
+MARKET_GUARD_BTC_DROP: float = getenv_float("MARKET_GUARD_BTC_DROP", 3.0)
 
 # === Фильтры тренда и перегрева ===
 NEGATIVE_TREND_7D_CUTOFF: float = getenv_float("NEGATIVE_TREND_7D_CUTOFF", -6.0)
@@ -46,13 +45,13 @@ MIN_LIQUIDITY_USD: float = getenv_float("MIN_LIQUIDITY_USD", 5_000_000.0)
 MAX_LIQUIDITY_USD: float = getenv_float("MAX_LIQUIDITY_USD", 100_000_000.0)
 
 # === Настройки новостей/кэша ===
-NEWS_TTL: int            = getenv_int("NEWS_TTL", 3600)        # кэш новостей, сек
+NEWS_TTL: int            = getenv_int("NEWS_TTL", 3600)
 NEWS_SCORE_CLAMP: float  = getenv_float("NEWS_SCORE_CLAMP", 0.6)
-FNG_TTL: int             = getenv_int("FNG_TTL", 1800)         # кэш F&G, сек
+FNG_TTL: int             = getenv_int("FNG_TTL", 1800)
 HTTP_TIMEOUT: float      = getenv_float("HTTP_TIMEOUT", 20.0)
 HTTP_MAX_RETRIES: int    = getenv_int("HTTP_MAX_RETRIES", 6)
 HTTP_BACKOFF_BASE: float = getenv_float("HTTP_BACKOFF_BASE", 1.7)
 
-# Опционально: токен CryptoPanic и/или собственный прокси новостей
+# Опционально
 CRYPTOPANIC_TOKEN: str   = os.getenv("CRYPTOPANIC_TOKEN", "")
 NEWS_BASE: str           = os.getenv("NEWS_BASE", "")
