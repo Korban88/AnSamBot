@@ -1,8 +1,7 @@
 # config.py
-# Единая точка чтения ENV с дефолтами, чтобы анализ работал «из коробки».
+# Единая точка чтения ENV с дефолтами.
 
 import os
-from typing import Any
 
 def getenv_bool(name: str, default: bool) -> bool:
     v = os.getenv(name)
@@ -22,6 +21,10 @@ def getenv_int(name: str, default: int) -> int:
     except (TypeError, ValueError):
         return default
 
+# === Базовые параметры бота ===
+BOT_TOKEN: str = os.getenv("BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
+OWNER_ID: int  = getenv_int("OWNER_ID", 347552741)  # твой Telegram ID (админ)
+
 # === Переключатели источников рынка/новостей ===
 ENABLE_FNG: bool  = getenv_bool("ENABLE_FNG", True)     # учитывать Fear & Greed
 ENABLE_NEWS: bool = getenv_bool("ENABLE_NEWS", True)    # учитывать новостной фон
@@ -35,14 +38,14 @@ FNG_EXTREME_FEAR: int  = getenv_int("FNG_EXTREME_FEAR", 25)
 MARKET_GUARD_BTC_DROP: float = getenv_float("MARKET_GUARD_BTC_DROP", 3.0)  # %
 
 # === Фильтры тренда и перегрева ===
-NEGATIVE_TREND_7D_CUTOFF: float = getenv_float("NEGATIVE_TREND_7D_CUTOFF", -6.0)  # отбрасываем монеты со спадом 7д <= -6%
-PUMP_CUTOFF_24H: float          = getenv_float("PUMP_CUTOFF_24H", 12.0)           # отбрасываем при перегреве за 24ч >= 12%
+NEGATIVE_TREND_7D_CUTOFF: float = getenv_float("NEGATIVE_TREND_7D_CUTOFF", -6.0)
+PUMP_CUTOFF_24H: float          = getenv_float("PUMP_CUTOFF_24H", 12.0)
 
 # === Ликвидность (суточный объём, USD) ===
 MIN_LIQUIDITY_USD: float = getenv_float("MIN_LIQUIDITY_USD", 5_000_000.0)
 MAX_LIQUIDITY_USD: float = getenv_float("MAX_LIQUIDITY_USD", 100_000_000.0)
 
-# === Настройки новостей/кэша (используются sentiment_utils/crypto_utils при наличии ENV) ===
+# === Настройки новостей/кэша ===
 NEWS_TTL: int            = getenv_int("NEWS_TTL", 3600)        # кэш новостей, сек
 NEWS_SCORE_CLAMP: float  = getenv_float("NEWS_SCORE_CLAMP", 0.6)
 FNG_TTL: int             = getenv_int("FNG_TTL", 1800)         # кэш F&G, сек
@@ -52,4 +55,4 @@ HTTP_BACKOFF_BASE: float = getenv_float("HTTP_BACKOFF_BASE", 1.7)
 
 # Опционально: токен CryptoPanic и/или собственный прокси новостей
 CRYPTOPANIC_TOKEN: str   = os.getenv("CRYPTOPANIC_TOKEN", "")
-NEWS_BASE: str           = os.getenv("NEWS_BASE", "")  # например, https://your-proxy.example
+NEWS_BASE: str           = os.getenv("NEWS_BASE", "")
