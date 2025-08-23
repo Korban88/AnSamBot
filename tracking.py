@@ -9,6 +9,7 @@ import logging
 import pytz
 
 TRACKING_FILE = "tracking_data.json"
+RISK_GUARD_FILE = "risk_guard.json"
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
 class CoinTracker:
@@ -20,6 +21,31 @@ class CoinTracker:
             if sym.lower() == symbol.lower():
                 return cid
         return None
+
+    @staticmethod
+    def _bump_risk_guard(kind: str):
+        """kind: 'target' | 'stop' | 'ttl' | 'trail'"""
+        today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
+        data = {"date": today, "stops": 0, "targets": 0}
+        try:
+            if os.path.exists(RISK_GUARD_FILE):
+                with open(RISK_GUARD_FILE, "r") as f:
+                    data = json.load(f)
+            if data.get("date") != today:
+                data = {"date": today, "stops": 0, "targets": 0}
+        except Exception:
+            data = {"date": today, "stops": 0, "targets": 0}
+
+        if kind in ("stop", "ttl"):
+            data["stops"] = int(data.get("stops", 0)) + 1
+        elif kind in ("target", "trail"):
+            data["targets"] = int(data.get("targets", 0)) + 1
+
+        try:
+            with open(RISK_GUARD_FILE, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logging.error(f"❌ Ошибка записи {RISK_GUARD_FILE}: {e}")
 
     @staticmethod
     def track(user_id, symbol, context: ContextTypes.DEFAULT_TYPE):
@@ -34,13 +60,18 @@ class CoinTracker:
             "coin_id": coin_id,
             "start_time": now.isoformat(),
             "initial_price": None,
+            # нотификации/состояние
             "notified_approaching_3_5": False,
             "notified_reached_3_5": False,
             "notified_reached_5": False,
             "notified_near_stop_loss": False,
             "notified_hit_stop_loss": False,
             "notified_12h": False,
-            "ttl_hours": 48  # жёсткий срок жизни сигнала
+            # трейлинг
+            "peak_change": 0.0,
+            "trailing_armed": False,
+            # срок жизни
+            "ttl_hours": 48
         }
         CoinTracker.save_tracking_data()
         logging.info(f"✅ Добавлено отслеживание: {symbol.upper()} (ID: {coin_id})")
@@ -90,13 +121,19 @@ class CoinTracker:
             percent_change = ((current_price - initial_price) / initial_price) * 100
             coin_data = CoinTracker.tracked[str(user_id)][symbol]
 
-            # 🎯 Цели вверх
+            # обновляем пик
+            if percent_change > coin_data["peak_change"]:
+                coin_data["peak_change"] = float(percent_change)
+                CoinTracker.save_tracking_data()
+
+            # 🎯 цели вверх
             if percent_change >= 5 and not coin_data["notified_reached_5"]:
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=f"🚀 {symbol.upper()} выросла на +5%!\nТекущая цена: ${current_price:.4f}"
                 )
                 coin_data["notified_reached_5"] = True
+                CoinTracker._bump_risk_guard("target")
                 CoinTracker.tracked[str(user_id)].pop(symbol, None)
                 CoinTracker.save_tracking_data()
                 break
@@ -104,9 +141,11 @@ class CoinTracker:
             elif percent_change >= 3.5 and not coin_data["notified_reached_3_5"]:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"🎯 {symbol.upper()} достигла +3.5%!\nТекущая цена: ${current_price:.4f}"
+                    text=f"🎯 {symbol.upper()} достигла +3.5%!\nТекущая цена: ${current_price:.4f}\n"
+                         f"Включаю защиту прибыли: трейлинг 1.5% от пика."
                 )
                 coin_data["notified_reached_3_5"] = True
+                coin_data["trailing_armed"] = True
                 CoinTracker.save_tracking_data()
 
             elif percent_change >= 3 and not coin_data["notified_approaching_3_5"]:
@@ -117,26 +156,41 @@ class CoinTracker:
                 coin_data["notified_approaching_3_5"] = True
                 CoinTracker.save_tracking_data()
 
-            # ⛔ Стоп-логика вниз
-            elif percent_change <= -3 and not coin_data["notified_hit_stop_loss"]:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"⛔ {symbol.upper()} сработал стоп-лосс (−3%). Рекомендация: выйти.\nТекущая цена: ${current_price:.4f}"
-                )
-                coin_data["notified_hit_stop_loss"] = True
-                CoinTracker.tracked[str(user_id)].pop(symbol, None)
-                CoinTracker.save_tracking_data()
-                break
+            # 🧲 трейлинг после 3.5%: откат ≥1.5% от пика и при этом текущая ≥ +0.3%
+            if coin_data.get("trailing_armed"):
+                drawdown = coin_data["peak_change"] - percent_change
+                if drawdown >= 1.5 and percent_change >= 0.3:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=(f"✅ {symbol.upper()}: трейлинг‑стоп сработал (+{percent_change:.2f}% от входа). "
+                              f"Рекомендация: фиксировать прибыль.\nТекущая цена: ${current_price:.4f}")
+                    )
+                    CoinTracker._bump_risk_guard("trail")
+                    CoinTracker.tracked[str(user_id)].pop(symbol, None)
+                    CoinTracker.save_tracking_data()
+                    break
 
-            elif percent_change <= -2 and not coin_data["notified_near_stop_loss"]:
+            # ⛔ стоп‑логика вниз: предупреждение и стоп
+            if percent_change <= -2 and not coin_data["notified_near_stop_loss"]:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"📉 {symbol.upper()} близко к стоп-лоссу (−2%). Будь аккуратен.\nТекущая цена: ${current_price:.4f}"
+                    text=f"📉 {symbol.upper()} близко к стоп‑лоссу (−2%). Будь аккуратен.\nТекущая цена: ${current_price:.4f}"
                 )
                 coin_data["notified_near_stop_loss"] = True
                 CoinTracker.save_tracking_data()
 
-            # 🕑 Временные события: 12ч апдейт + TTL 48ч
+            if percent_change <= -3 and not coin_data["notified_hit_stop_loss"]:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"⛔ {symbol.upper()} сработал стоп‑лосс (−3%). Рекомендация: выйти.\nТекущая цена: ${current_price:.4f}"
+                )
+                coin_data["notified_hit_stop_loss"] = True
+                CoinTracker._bump_risk_guard("stop")
+                CoinTracker.tracked[str(user_id)].pop(symbol, None)
+                CoinTracker.save_tracking_data()
+                break
+
+            # 🕑 время: 12ч апдейт + TTL 48ч на выход без движения
             elapsed = (datetime.now(MOSCOW_TZ) - start_time)
             if elapsed >= timedelta(hours=12) and not coin_data.get("notified_12h"):
                 await context.bot.send_message(
@@ -150,9 +204,10 @@ class CoinTracker:
             if elapsed >= timedelta(hours=ttl_hours):
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"🚫 Сигнал по {symbol.upper()} истёк (без достижения цели за {ttl_hours}ч). "
-                         f"Рекомендация: выйти и перераспределить капитал."
+                    text=(f"🚫 Сигнал по {symbol.upper()} истёк (без достижения цели за {ttl_hours}ч). "
+                          f"Рекомендация: выйти и перераспределить капитал.")
                 )
+                CoinTracker._bump_risk_guard("ttl")
                 CoinTracker.tracked[str(user_id)].pop(symbol, None)
                 CoinTracker.save_tracking_data()
                 break
@@ -201,7 +256,7 @@ class CoinTracker:
                 elif percent_change >= 3.5:
                     status = "✅ близко к цели — держать"
                 elif percent_change <= -2:
-                    status = "⚠️ близко к стоп-лоссу — подумай о выходе"
+                    status = "⚠️ близко к стоп‑лоссу — подумай о выходе"
                 else:
                     status = "ℹ️ умеренное движение — держать"
 
