@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 _FNG_CACHE = {"ts": 0.0, "data": None}
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}  # key -> {"ts": float, "score": float}
 
+# глобальный кулдаун для CryptoPanic (после 429 не ходим N минут)
+_NEWS_COOLDOWN_UNTIL: float = 0.0
+
 FNG_URL = "https://api.alternative.me/fng/"          # Fear & Greed Index (без ключа)
 CRYPTOPANIC_URL = "https://cryptopanic.com/api/v1/posts/"
 
@@ -19,19 +22,18 @@ def _now() -> float:
     return time.time()
 
 async def _retryable_get(session: aiohttp.ClientSession, url: str, **kwargs):
-    """GET с 3 попытками и экспоненциальной задержкой при 429/5xx."""
+    """Универсальный ретраер для GET: 200 — вернём сразу, 429/5xx — пара бэкоффов."""
     backoffs = [6, 12, 18]
     for i in range(3):
         r = await session.get(url, **kwargs)
         if r.status == 200:
             return r
-        # при 429/5xx — подождать и повторить
         if r.status in (429, 500, 502, 503, 504) and i < 2:
             wait = backoffs[i]
             logger.warning(f"HTTP {r.status} → повтор через {wait} сек")
             await asyncio.sleep(wait)
             continue
-        return r
+        return r  # вернём последний ответ (может быть 429/5xx)
 
 async def get_fear_greed(ttl: int = 1800) -> Optional[Dict[str, Any]]:
     """
@@ -48,6 +50,7 @@ async def get_fear_greed(ttl: int = 1800) -> Optional[Dict[str, Any]]:
             logger.warning(f"F&G HTTP {getattr(r, 'status', None)}")
             return None
         j = await r.json()
+
     try:
         item = j["data"][0]
         data = {"value": int(item["value"]), "classification": item.get("value_classification", "")}
@@ -74,51 +77,68 @@ def _polarity(title: str) -> int:
 async def get_news_sentiment(query: str, ttl: int = 1800, limit: int = 25) -> Optional[float]:
     """
     Агрегированный новостной скор от -1 до +1 (приблизительно), на базе CryptoPanic.
-    query — обычно символ монеты (BTC/ETH/APE и т.п.) или coingecko id.
-    Возвращает None, если CRYPTOPANIC_TOKEN не задан или нет новостей.
+    query — обычно символ монеты (BTC/ETH/APE и т.п.) или coingecko id, что есть.
+    Возвращает None, если токена нет / нет новостей / активен кулдаун после 429.
     """
+    global _NEWS_COOLDOWN_UNTIL
+
     key = (query or "").strip().lower()
     if not key:
         return None
 
     now = _now()
+
+    # глобальный кулдаун после 429: до this_time не ходим за новостями вовсе
+    if now < _NEWS_COOLDOWN_UNTIL:
+        return None
+
     if key in _NEWS_CACHE and (now - _NEWS_CACHE[key]["ts"] < ttl):
         return _NEWS_CACHE[key]["score"]
 
     if not CRYPTOPANIC_TOKEN:
+        # модуль включён, но токена нет — просто не используем новости
         return None
 
     params_tick = {
         "auth_token": CRYPTOPANIC_TOKEN,
-        "currencies": query.upper(),   # тикер/символ
+        "currencies": query.upper(),   # CryptoPanic понимает tickers/aliases
         "filter": "hot",
-        "kind": "news",
+        "kind": "news"
     }
     params_text = {
         "auth_token": CRYPTOPANIC_TOKEN,
-        "q": query,                    # текстовый поиск как запасной вариант
+        "q": query,
         "filter": "hot",
-        "kind": "news",
+        "kind": "news"
     }
 
     score = 0
     cnt = 0
     try:
         async with aiohttp.ClientSession() as s:
-            # 1) пробуем по тикеру
+            # Сначала пробуем по тикеру
             r = await _retryable_get(s, CRYPTOPANIC_URL, params=params_tick, timeout=15)
             if not r or r.status != 200:
-                logger.warning(f"CryptoPanic HTTP {getattr(r, 'status', None)} for {query}")
+                if r and r.status == 429:
+                    _NEWS_COOLDOWN_UNTIL = now + 10 * 60  # 10 минут кулдаун
+                    logger.warning("CryptoPanic rate-limited → включен 10‑минутный кулдаун")
+                else:
+                    logger.warning(f"CryptoPanic HTTP {getattr(r, 'status', None)} for {query}")
                 return None
+
             j = await r.json()
             results = j.get("results", [])[:limit]
 
-            # если по тикеру пусто — попробуем текстовый поиск
+            # если по тикеру пусто — пробуем текстовый поиск
             if not results:
                 r2 = await _retryable_get(s, CRYPTOPANIC_URL, params=params_text, timeout=15)
                 if r2 and r2.status == 200:
                     j2 = await r2.json()
                     results = j2.get("results", [])[:limit]
+                elif r2 and r2.status == 429:
+                    _NEWS_COOLDOWN_UNTIL = now + 10 * 60
+                    logger.warning("CryptoPanic rate-limited (q-search) → включен 10‑минутный кулдаун")
+                    return None
 
             for p in results:
                 title = p.get("title", "")
