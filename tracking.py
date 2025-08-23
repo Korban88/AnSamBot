@@ -38,7 +38,9 @@ class CoinTracker:
             "notified_reached_3_5": False,
             "notified_reached_5": False,
             "notified_near_stop_loss": False,
-            "notified_hit_stop_loss": False
+            "notified_hit_stop_loss": False,
+            "notified_12h": False,
+            "ttl_hours": 48  # жёсткий срок жизни сигнала
         }
         CoinTracker.save_tracking_data()
         logging.info(f"✅ Добавлено отслеживание: {symbol.upper()} (ID: {coin_id})")
@@ -88,6 +90,7 @@ class CoinTracker:
             percent_change = ((current_price - initial_price) / initial_price) * 100
             coin_data = CoinTracker.tracked[str(user_id)][symbol]
 
+            # 🎯 Цели вверх
             if percent_change >= 5 and not coin_data["notified_reached_5"]:
                 await context.bot.send_message(
                     chat_id=user_id,
@@ -114,10 +117,11 @@ class CoinTracker:
                 coin_data["notified_approaching_3_5"] = True
                 CoinTracker.save_tracking_data()
 
-            elif percent_change <= -5 and not coin_data["notified_hit_stop_loss"]:
+            # ⛔ Стоп-логика вниз
+            elif percent_change <= -3 and not coin_data["notified_hit_stop_loss"]:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"🚨 {symbol.upper()} достигла стоп-лосса (−5%).\nТекущая цена: ${current_price:.4f}"
+                    text=f"⛔ {symbol.upper()} сработал стоп-лосс (−3%). Рекомендация: выйти.\nТекущая цена: ${current_price:.4f}"
                 )
                 coin_data["notified_hit_stop_loss"] = True
                 CoinTracker.tracked[str(user_id)].pop(symbol, None)
@@ -127,16 +131,27 @@ class CoinTracker:
             elif percent_change <= -2 and not coin_data["notified_near_stop_loss"]:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"📉 {symbol.upper()} близка к стоп-лоссу (−2%).\nТекущая цена: ${current_price:.4f}"
+                    text=f"📉 {symbol.upper()} близко к стоп-лоссу (−2%). Будь аккуратен.\nТекущая цена: ${current_price:.4f}"
                 )
                 coin_data["notified_near_stop_loss"] = True
                 CoinTracker.save_tracking_data()
 
-            elapsed = datetime.now(MOSCOW_TZ) - start_time
-            if elapsed >= timedelta(hours=12):
+            # 🕑 Временные события: 12ч апдейт + TTL 48ч
+            elapsed = (datetime.now(MOSCOW_TZ) - start_time)
+            if elapsed >= timedelta(hours=12) and not coin_data.get("notified_12h"):
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"⚠️ С момента отслеживания прошло 12 часов.\nИзменение цены {symbol.upper()}: {percent_change:.2f}%"
+                    text=f"ℹ️ 12 часов с момента входа по {symbol.upper()}. Текущая динамика: {percent_change:.2f}%."
+                )
+                coin_data["notified_12h"] = True
+                CoinTracker.save_tracking_data()
+
+            ttl_hours = coin_data.get("ttl_hours", 48)
+            if elapsed >= timedelta(hours=ttl_hours):
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"🚫 Сигнал по {symbol.upper()} истёк (без достижения цели за {ttl_hours}ч). "
+                         f"Рекомендация: выйти и перераспределить капитал."
                 )
                 CoinTracker.tracked[str(user_id)].pop(symbol, None)
                 CoinTracker.save_tracking_data()
