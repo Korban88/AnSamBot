@@ -25,6 +25,10 @@ ANALYSIS_LOG = []
 RISK_GUARD_FILE = "risk_guard.json"
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
+# Мягкий «бюджет» на запросы новостей за один прогон анализа,
+# чтобы не словить 429 от CryptoPanic.
+NEWS_MAX_PER_RUN = 10
+
 
 def safe_float(value, default=0.0):
     try:
@@ -95,7 +99,7 @@ def evaluate_coin(coin, fng=None, news_score=None):
     """
     ДОПОЛНЕНО:
       - fng (dict) → {'value': int, 'classification': str}
-      - news_score (float|None) → [-1..+1] по CryptoPanic (агрегат за последние часы)
+      - news_score (float|None) → [-1..+1] по CryptoPanic (агрегат)
     """
     rsi = round(safe_float(coin.get("rsi")), 2)
     ma7 = round(safe_float(coin.get("ma7")), 4)
@@ -110,7 +114,7 @@ def evaluate_coin(coin, fng=None, news_score=None):
     reasons = []
     score = 0
 
-    # Жёсткие отсевы перед расчётом (перегрев/супер-даунтренд/ликвидность)
+    # Жёсткие отсевы (перегрев / сильный даунтренд / низкая/слишком высокая ликвидность)
     if change_24h is not None and change_24h >= PUMP_CUTOFF_24H:
         return 0, 0, [f"⛔ Перегрев за 24ч ({change_24h}%) выше {PUMP_CUTOFF_24H}% — исключено"]
     if change_7d is not None and change_7d <= NEGATIVE_TREND_7D_CUTOFF:
@@ -118,28 +122,28 @@ def evaluate_coin(coin, fng=None, news_score=None):
     if volume is not None and not (MIN_LIQUIDITY_USD <= volume <= MAX_LIQUIDITY_USD):
         return 0, 0, reasons + [f"⛔ Объём {format_volume(volume)} вне допустимого диапазона"]
 
-    # RSI check
+    # RSI
     if 52 <= rsi <= 60:
         score += 1
         reasons.append(f"✓ RSI {rsi} (в норме)")
     else:
         reasons.append(f"✗ RSI {rsi} (вне диапазона 52–60)")
 
-    # MA7 check
+    # MA7
     if ma7 > 0 and price > ma7:
         score += 1
         reasons.append(f"✓ Цена выше MA7 ({ma7})")
     else:
         reasons.append(f"✗ Цена ниже MA7 ({ma7})")
 
-    # Change 24h check
+    # Изменение за 24ч
     if change_24h >= 2.5:
         score += 1
         reasons.append(f"✓ Рост за 24ч {growth_comment(change_24h)}")
     else:
         reasons.append(f"✗ Рост за 24ч {growth_comment(change_24h)}")
 
-    # Weekly trend check (мягкий штраф/бонус обрабатываем в вероятности)
+    # Тренд 7д
     if change_7d is not None:
         if change_7d > 0:
             score += 1
@@ -149,21 +153,21 @@ def evaluate_coin(coin, fng=None, news_score=None):
     else:
         reasons.append("⚠️ Данные по 7д отсутствуют")
 
-    # Volume check (локальный «ок» — диапазон уже выше проверили)
+    # Объём — уже отфильтрован по диапазону
     score += 1
     reasons.append(f"✓ Объём {format_volume(volume)}")
 
-    # Probability базовая
+    # Базовая вероятность
     rsi_weight = 1 if 52 <= rsi <= 60 else 0
     ma_weight = 1 if ma7 > 0 and price > ma7 else 0
     change_weight = min(change_24h / 6, 1) if change_24h > 0 else 0
-    vol_weight = 1  # мы уже убедились, что в допустимом диапазоне
+    vol_weight = 1
     trend_weight = 1 if (change_7d is not None and change_7d > 0) else 0
 
     base_prob = 60
     prob = base_prob + (rsi_weight + ma_weight + change_weight + vol_weight + trend_weight) * 5
 
-    # === NEW: режим рынка (Fear & Greed) ===
+    # === Fear & Greed ===
     if fng and isinstance(fng.get("value", None), int):
         fng_val = fng["value"]
         fng_cls = fng.get("classification", "")
@@ -174,7 +178,7 @@ def evaluate_coin(coin, fng=None, news_score=None):
             prob -= 2
             reasons.append(f"🧭 F&G: {fng_val} ({fng_cls}) — осторожнее")
 
-    # === NEW: новостной фон ===
+    # === Новостной фон ===
     if news_score is not None:
         if news_score > 0.2:
             prob = min(prob + 2, 92)
@@ -183,7 +187,7 @@ def evaluate_coin(coin, fng=None, news_score=None):
             prob = max(prob - 3, 0)
             reasons.append("📰 Негативный новостной фон")
 
-    # Мягкая корректировка за 7д тренд
+    # Мягкая корректировка за 7д
     if change_7d is not None:
         if change_7d >= 3:
             prob = min(prob + 1, 92)
@@ -217,7 +221,7 @@ async def analyze_cryptos(fallback=True):
     except Exception as e:
         logger.warning(f"Не удалось проверить рынок (BTC/ETH): {e}")
 
-    # === NEW: Fear & Greed ===
+    # === Fear & Greed ===
     fng = None
     if ENABLE_FNG:
         try:
@@ -251,26 +255,28 @@ async def analyze_cryptos(fallback=True):
     no_data = len(missing_ids)
     excluded = 0
 
+    news_used = 0  # лимитируем количество запросов к CryptoPanic в один прогон
+
     for coin in all_data:
         coin_id = coin.get("id", "")
         if coin_id in EXCLUDE_IDS:
             excluded += 1
             continue
 
-        # первичная оценка без дорогих вызовов новостей
+        # первичная оценка без «дорогих» новостей
         try:
             score, prob, reasons = evaluate_coin(coin, fng=fng, news_score=None)
         except Exception:
             continue
 
-        # подключаем новостной фон только для претендентов (экономим лимиты)
+        # новостной фон — только для претендентов и в пределах бюджета
         news_score = None
-        if ENABLE_NEWS and score >= 3:
+        if ENABLE_NEWS and score >= 3 and news_used < NEWS_MAX_PER_RUN:
             try:
-                # пробуем по символу; если пусто — по coingecko id
                 sym = (coin.get("symbol") or "").upper()
                 news_score = await get_news_sentiment(sym or coin_id)
-                # пересчёт вероятности с учётом новостей
+                news_used += 1
+                # пересчёт с учётом новостей
                 score, prob, reasons = evaluate_coin(coin, fng=fng, news_score=news_score)
                 if news_score is not None:
                     ANALYSIS_LOG.append(f"📰 {sym or coin_id}: news_score={round(news_score,2)}")
