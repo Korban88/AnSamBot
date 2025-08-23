@@ -1,4 +1,9 @@
 import logging
+import json
+import os
+from datetime import datetime
+import pytz
+
 from crypto_utils import get_all_coin_data
 from crypto_list import TELEGRAM_WALLET_COIN_IDS
 
@@ -6,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
 ANALYSIS_LOG = []
+RISK_GUARD_FILE = "risk_guard.json"
+MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
 
 def safe_float(value, default=0.0):
@@ -47,7 +54,7 @@ def get_deposit_advice(prob):
 
 
 def growth_comment(change_24h):
-    change_24h = round(change_24h, 2)  # округляем всегда до 2 знаков
+    change_24h = round(change_24h, 2)
     if change_24h >= 10:
         return f"{change_24h}% 🚀 (очень высокий, возможен перегрев)"
     elif change_24h >= 5:
@@ -56,6 +63,21 @@ def growth_comment(change_24h):
         return f"{change_24h}% (умеренный, безопасный)"
     else:
         return f"{change_24h}% ⚠️ (слабый рост)"
+
+
+def _read_risk_guard():
+    """Читает дневную статистику стопов/профитов для защитного режима."""
+    today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
+    if not os.path.exists(RISK_GUARD_FILE):
+        return {"date": today, "stops": 0, "targets": 0}
+    try:
+        with open(RISK_GUARD_FILE, "r") as f:
+            data = json.load(f)
+        if data.get("date") != today:
+            return {"date": today, "stops": 0, "targets": 0}
+        return {"date": today, "stops": int(data.get("stops", 0)), "targets": int(data.get("targets", 0))}
+    except Exception:
+        return {"date": today, "stops": 0, "targets": 0}
 
 
 def evaluate_coin(coin):
@@ -67,7 +89,7 @@ def evaluate_coin(coin):
     if change_7d is not None:
         change_7d = round(change_7d, 2)
     volume = safe_float(coin.get("total_volume"))
-    symbol = coin.get("symbol", "?").upper()
+    # symbol = coin.get("symbol", "?").upper()  # (не используется ниже)
 
     reasons = []
     score = 0
@@ -93,13 +115,16 @@ def evaluate_coin(coin):
     else:
         reasons.append(f"✗ Рост за 24ч {growth_comment(change_24h)}")
 
-    # Weekly trend check
+    # Weekly trend check (доп. защита: не брать явный даунтренд ниже −5%)
     if change_7d is not None:
         if change_7d > 0:
             score += 1
             reasons.append(f"✓ Тренд за 7д {change_7d}%")
         else:
             reasons.append(f"✗ Тренд за 7д {change_7d}% (просадка)")
+            if change_7d <= -5:
+                # жёсткий отсев сильного даунтренда
+                return 0, 0, reasons + ["⛔ Даунтренд ниже −5% за 7д — исключено"]
     else:
         reasons.append("⚠️ Данные по 7д отсутствуют")
 
@@ -128,7 +153,7 @@ async def analyze_cryptos(fallback=True):
     global ANALYSIS_LOG
     ANALYSIS_LOG.clear()
 
-    # 🛡️ Market-guard: если BTC падает сильнее -2% за 24ч — не торгуем
+    # 🛡️ Market-guard: проверка BTC/ETH
     try:
         mk = await get_all_coin_data(["bitcoin", "ethereum"])
         mk_map = {c.get("id"): c for c in mk}
@@ -145,8 +170,16 @@ async def analyze_cryptos(fallback=True):
                 f"🟢 Рынок ок: BTC {round(btc_24h,2)}%, ETH {round(eth_24h,2)}% — продолжаем анализ"
             )
     except Exception as e:
-        # Если не удалось проверить рынок — продолжаем, но логируем
         logger.warning(f"Не удалось проверить рынок (BTC/ETH): {e}")
+
+    # 🔒 Daily risk-guard: слишком много стопов сегодня — делаем паузу
+    rg = _read_risk_guard()
+    if (rg["stops"] - rg["targets"] >= 2) or (rg["stops"] >= 3):
+        ANALYSIS_LOG.append(
+            f"🧯 Daily guard: остановка сигналов до завтра — сегодня стопов={rg['stops']}, профитов={rg['targets']}"
+        )
+        logger.info(ANALYSIS_LOG[-1])
+        return []
 
     try:
         coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
@@ -178,7 +211,6 @@ async def analyze_cryptos(fallback=True):
             passed += 1
             coin["score"] = score
             coin["probability"] = prob
-            # добавим маркер про рынок в reasons, если он был рассчитан выше
             coin["reasons"] = reasons + [get_deposit_advice(prob)]
             coin["current_price"] = round_price(safe_float(coin.get("current_price")))
             coin["price_change_percentage_24h"] = round(safe_float(coin.get("price_change_percentage_24h")), 2)
@@ -224,7 +256,7 @@ async def analyze_cryptos(fallback=True):
                 break
 
     ANALYSIS_LOG.append(
-        f"📊 Статистика анализа: получено {len(all_data)} из {len(TELEGRAM_WALLET_COIN_IDS)}, "
+        f"📊 Статистика анализа: получено {len(all_data)} из {len(coin_ids)}, "
         f"прошло фильтр {passed}, без данных {no_data}, исключено {excluded}, "
         f"не прошло {len(all_data) - passed - excluded}"
     )
