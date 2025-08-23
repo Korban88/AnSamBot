@@ -1,157 +1,226 @@
-import aiohttp
+# sentiment_utils.py
+# Ассинхронные утилиты новостей и Fear&Greed с кэшем и анти‑429.
+import os
+import json
 import asyncio
-import time
-from typing import Optional, Dict, Any
-import logging
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
 
-from config import CRYPTOPANIC_TOKEN
+import aiohttp
 
-logger = logging.getLogger(__name__)
+CACHE_PATH = os.getenv("INDICATORS_CACHE_FILE", "indicators_cache.json")
 
-# простые кэши, чтобы не спамить API
-_FNG_CACHE = {"ts": 0.0, "data": None}
-_NEWS_CACHE: Dict[str, Dict[str, Any]] = {}  # key -> {"ts": float, "score": float}
+HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "20"))
+HTTP_MAX_RETRIES = int(os.getenv("HTTP_MAX_RETRIES", "6"))
+HTTP_BACKOFF_BASE = float(os.getenv("HTTP_BACKOFF_BASE", "1.7"))
 
-# глобальный кулдаун для CryptoPanic (после 429 не ходим N минут)
-_NEWS_COOLDOWN_UNTIL: float = 0.0
+# ---- Fear&Greed
+FNG_API = os.getenv("FNG_API", "https://api.alternative.me/fng/")  # публичный эндпоинт
+FNG_TTL = int(os.getenv("FNG_TTL", "1800"))  # 30 минут
 
-FNG_URL = "https://api.alternative.me/fng/"          # Fear & Greed Index (без ключа)
-CRYPTOPANIC_URL = "https://cryptopanic.com/api/v1/posts/"
+# ---- Новости
+# Вариант 1: свой прокси (должен вернуть {"tone": -1..+1})
+NEWS_BASE = os.getenv("NEWS_BASE")  # например, https://your-proxy.example
+# Вариант 2: CryptoPanic (рекомендуется)
+CRYPTOPANIC_TOKEN = os.getenv("CRYPTOPANIC_TOKEN")
+NEWS_TTL_DEFAULT = int(os.getenv("NEWS_TTL", "3600"))  # 60 минут
+NEWS_SCORE_CLAMP = float(os.getenv("NEWS_SCORE_CLAMP", "0.6"))  # итоговый |score| <= 0.6
 
-def _now() -> float:
-    return time.time()
-
-async def _retryable_get(session: aiohttp.ClientSession, url: str, **kwargs):
-    """Универсальный ретраер для GET: 200 — вернём сразу, 429/5xx — пара бэкоффов."""
-    backoffs = [6, 12, 18]
-    for i in range(3):
-        r = await session.get(url, **kwargs)
-        if r.status == 200:
-            return r
-        if r.status in (429, 500, 502, 503, 504) and i < 2:
-            wait = backoffs[i]
-            logger.warning(f"HTTP {r.status} → повтор через {wait} сек")
-            await asyncio.sleep(wait)
-            continue
-        return r  # вернём последний ответ (может быть 429/5xx)
-
-async def get_fear_greed(ttl: int = 1800) -> Optional[Dict[str, Any]]:
-    """
-    Возвращает dict: {"value": int 0..100, "classification": str}
-    Кэш: 30 минут по умолчанию.
-    """
-    now = _now()
-    if _FNG_CACHE["data"] and (now - _FNG_CACHE["ts"] < ttl):
-        return _FNG_CACHE["data"]
-
-    async with aiohttp.ClientSession() as s:
-        r = await _retryable_get(s, FNG_URL, timeout=15)
-        if not r or r.status != 200:
-            logger.warning(f"F&G HTTP {getattr(r, 'status', None)}")
-            return None
-        j = await r.json()
-
+# ---- Кэш
+def _load_cache() -> Dict[str, Any]:
+    if not os.path.exists(CACHE_PATH):
+        return {}
     try:
-        item = j["data"][0]
-        data = {"value": int(item["value"]), "classification": item.get("value_classification", "")}
-        _FNG_CACHE["data"] = data
-        _FNG_CACHE["ts"] = now
-        return data
-    except Exception as e:
-        logger.warning(f"F&G parse error: {e}")
+        with open(CACHE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_cache(cache: Dict[str, Any]) -> None:
+    tmp = CACHE_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, CACHE_PATH)
+
+CACHE = _load_cache()
+
+def _cache_get(ns: str, key: str, ttl_sec: int) -> Optional[Any]:
+    node = CACHE.get(ns, {}).get(key)
+    if not node:
         return None
-
-
-# очень лёгкий словарный сентимент по заголовку
-_POS_HINTS = ("surge", "rally", "partnership", "integration", "listing", "mainnet", "raises", "sec approves",
-              "etf ok", "funding", "upgrade", "launch", "support", "adds", "deploy")
-_NEG_HINTS = ("hack", "exploit", "delist", "lawsuit", "sec sues", "halt", "outage", "rug", "ban",
-              "sanction", "downgrade", "bug", "leak", "attack")
-
-def _polarity(title: str) -> int:
-    t = (title or "").lower()
-    pos = any(w in t for w in _POS_HINTS)
-    neg = any(w in t for w in _NEG_HINTS)
-    return (1 if pos else 0) + (-1 if neg else 0)
-
-async def get_news_sentiment(query: str, ttl: int = 1800, limit: int = 25) -> Optional[float]:
-    """
-    Агрегированный новостной скор от -1 до +1 (приблизительно), на базе CryptoPanic.
-    query — обычно символ монеты (BTC/ETH/APE и т.п.) или coingecko id, что есть.
-    Возвращает None, если токена нет / нет новостей / активен кулдаун после 429.
-    """
-    global _NEWS_COOLDOWN_UNTIL
-
-    key = (query or "").strip().lower()
-    if not key:
-        return None
-
-    now = _now()
-
-    # глобальный кулдаун после 429: до this_time не ходим за новостями вовсе
-    if now < _NEWS_COOLDOWN_UNTIL:
-        return None
-
-    if key in _NEWS_CACHE and (now - _NEWS_CACHE[key]["ts"] < ttl):
-        return _NEWS_CACHE[key]["score"]
-
-    if not CRYPTOPANIC_TOKEN:
-        # модуль включён, но токена нет — просто не используем новости
-        return None
-
-    params_tick = {
-        "auth_token": CRYPTOPANIC_TOKEN,
-        "currencies": query.upper(),   # CryptoPanic понимает tickers/aliases
-        "filter": "hot",
-        "kind": "news"
-    }
-    params_text = {
-        "auth_token": CRYPTOPANIC_TOKEN,
-        "q": query,
-        "filter": "hot",
-        "kind": "news"
-    }
-
-    score = 0
-    cnt = 0
     try:
-        async with aiohttp.ClientSession() as s:
-            # Сначала пробуем по тикеру
-            r = await _retryable_get(s, CRYPTOPANIC_URL, params=params_tick, timeout=15)
-            if not r or r.status != 200:
-                if r and r.status == 429:
-                    _NEWS_COOLDOWN_UNTIL = now + 10 * 60  # 10 минут кулдаун
-                    logger.warning("CryptoPanic rate-limited → включен 10‑минутный кулдаун")
-                else:
-                    logger.warning(f"CryptoPanic HTTP {getattr(r, 'status', None)} for {query}")
-                return None
-
-            j = await r.json()
-            results = j.get("results", [])[:limit]
-
-            # если по тикеру пусто — пробуем текстовый поиск
-            if not results:
-                r2 = await _retryable_get(s, CRYPTOPANIC_URL, params=params_text, timeout=15)
-                if r2 and r2.status == 200:
-                    j2 = await r2.json()
-                    results = j2.get("results", [])[:limit]
-                elif r2 and r2.status == 429:
-                    _NEWS_COOLDOWN_UNTIL = now + 10 * 60
-                    logger.warning("CryptoPanic rate-limited (q-search) → включен 10‑минутный кулдаун")
-                    return None
-
-            for p in results:
-                title = p.get("title", "")
-                score += _polarity(title)
-                cnt += 1
-    except Exception as e:
-        logger.warning(f"CryptoPanic error for {query}: {e}")
+        ts = datetime.fromisoformat(node["ts"])
+    except Exception:
         return None
-
-    if cnt == 0:
+    if datetime.utcnow() - ts > timedelta(seconds=ttl_sec):
         return None
+    return node["val"]
 
-    # нормируем примерно к [-1..+1]
-    val = max(-1.0, min(1.0, score / max(cnt, 1)))
-    _NEWS_CACHE[key] = {"ts": now, "score": val}
-    return val
+def _cache_set(ns: str, key: str, val: Any) -> None:
+    CACHE.setdefault(ns, {})[key] = {"ts": datetime.utcnow().isoformat(), "val": val}
+    _save_cache(CACHE)
+
+# ---- HTTP
+_SESSION: Optional[aiohttp.ClientSession] = None
+_LOCK = asyncio.Lock()
+
+async def _get_session() -> aiohttp.ClientSession:
+    global _SESSION
+    if _SESSION and not _SESSION.closed:
+        return _SESSION
+    async with _LOCK:
+        if _SESSION is None or _SESSION.closed:
+            timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
+            _SESSION = aiohttp.ClientSession(
+                timeout=timeout,
+                headers={"Accept": "application/json", "User-Agent": "AnSamBot/sentiment-anti429"}
+            )
+    return _SESSION
+
+async def _request_json(method: str, url: str, params: Dict[str, Any] | None = None) -> Any:
+    session = await _get_session()
+    attempt = 0
+    while True:
+        try:
+            async with session.request(method.upper(), url, params=params) as r:
+                if r.status == 429:
+                    attempt += 1
+                    if attempt > HTTP_MAX_RETRIES:
+                        raise RuntimeError(f"News/FNG 429 after {attempt} retries: {url}")
+                    retry_after = r.headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            wait_s = min(float(retry_after), 30.0)
+                        except ValueError:
+                            wait_s = min((HTTP_BACKOFF_BASE ** attempt) + 0.1 * attempt, 25.0)
+                    else:
+                        wait_s = min((HTTP_BACKOFF_BASE ** attempt) + 0.1 * attempt, 25.0)
+                    await asyncio.sleep(wait_s)
+                    continue
+                if 500 <= r.status < 600:
+                    attempt += 1
+                    if attempt > HTTP_MAX_RETRIES:
+                        raise RuntimeError(f"News/FNG {r.status} after {attempt} retries: {url}")
+                    wait_s = min((HTTP_BACKOFF_BASE ** attempt) + 0.1 * attempt, 20.0)
+                    await asyncio.sleep(wait_s)
+                    continue
+                r.raise_for_status()
+                return await r.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            attempt += 1
+            if attempt > HTTP_MAX_RETRIES:
+                raise
+            wait_s = min((HTTP_BACKOFF_BASE ** attempt) + 0.2 * attempt, 20.0)
+            await asyncio.sleep(wait_s)
+
+# ---- Fear & Greed
+def _classify_fng(v: int) -> str:
+    if v <= 24:
+        return "Extreme Fear"
+    if v <= 44:
+        return "Fear"
+    if v <= 54:
+        return "Neutral"
+    if v <= 74:
+        return "Greed"
+    return "Extreme Greed"
+
+async def get_fear_greed() -> Dict[str, Any]:
+    cached = _cache_get("fng", "data", FNG_TTL)
+    if cached:
+        return cached
+    try:
+        data = await _request_json("GET", FNG_API)
+        # формат alternative.me: {"data":[{"value":"60","value_classification":"Greed", ...}]}
+        row = (data.get("data") or [{}])[0]
+        val = int(row.get("value") or 50)
+        cls = row.get("value_classification") or _classify_fng(val)
+        out = {"value": val, "classification": str(cls)}
+    except Exception:
+        # нейтрально, если API не доступен
+        out = {"value": 50, "classification": "Neutral"}
+    _cache_set("fng", "data", out)
+    return out
+
+# ---- Новости / тональность [-1..+1]
+async def _news_via_proxy(symbol: str) -> float:
+    """Ожидаем от прокси JSON {"tone": -1..+1} по параметру symbol."""
+    url = f"{NEWS_BASE.rstrip('/')}/v1/news"
+    params = {"symbol": symbol.upper()}
+    try:
+        data = await _request_json("GET", url, params=params)
+        tone = float(data.get("tone", 0.0))
+        return max(-1.0, min(1.0, tone))
+    except Exception:
+        return 0.0
+
+async def _news_via_cryptopanic(symbol: str) -> float:
+    """
+    Берём ленту новостей по монете и агрегируем: (positive - negative) / (positive + negative),
+    с убывающим весом на сроке до 72 часов.
+    """
+    url = "https://cryptopanic.com/api/v1/posts/"
+    params = {
+        "auth_token": CRYPTOPANIC_TOKEN,
+        "currencies": symbol.upper(),
+        "filter": "rising|hot|important|bullish|bearish|news",  # расширяем
+        "kind": "news",
+        "public": "true"
+    }
+    try:
+        data = await _request_json("GET", url, params=params)
+        results = data.get("results") or []
+    except Exception:
+        results = []
+
+    if not results:
+        return 0.0
+
+    def _weight(published_at: str) -> float:
+        try:
+            # 2025-08-23T15:47:02Z
+            dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+            hours = max(0.0, (datetime.utcnow() - dt.replace(tzinfo=None)).total_seconds() / 3600.0)
+            # последние 24ч — вес ~1, к 72ч падает до 0.2
+            return max(0.2, 1.0 - hours / 72.0)
+        except Exception:
+            return 0.5
+
+    score_sum = 0.0
+    weight_sum = 0.0
+    for item in results:
+        votes = item.get("votes") or {}
+        pos = float(votes.get("positive") or 0.0)
+        neg = float(votes.get("negative") or 0.0)
+        denom = pos + neg
+        local = 0.0 if denom == 0 else (pos - neg) / denom  # [-1..+1]
+        w = _weight(item.get("published_at") or "")
+        score_sum += local * w
+        weight_sum += w
+
+    if weight_sum <= 0:
+        return 0.0
+    tone = max(-1.0, min(1.0, score_sum / weight_sum))
+    return tone
+
+async def get_news_sentiment(symbol: str, ttl: int = NEWS_TTL_DEFAULT) -> float:
+    """
+    Возвращает тональность [-1..+1], затем мягко «срезает» амплитуду NEWS_SCORE_CLAMP.
+    Кэшируется на ttl секунд по ключу монеты.
+    """
+    key = symbol.upper()
+    cached = _cache_get("news_sentiment", key, ttl)
+    if cached is not None:
+        return float(cached)
+
+    if NEWS_BASE:
+        tone = await _news_via_proxy(key)
+    elif CRYPTOPANIC_TOKEN:
+        tone = await _news_via_cryptopanic(key)
+    else:
+        # нет источника — нейтрально
+        tone = 0.0
+
+    tone = max(-1.0, min(1.0, tone)) * NEWS_SCORE_CLAMP
+    _cache_set("news_sentiment", key, tone)
+    return tone
