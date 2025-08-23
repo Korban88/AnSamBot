@@ -128,6 +128,26 @@ async def analyze_cryptos(fallback=True):
     global ANALYSIS_LOG
     ANALYSIS_LOG.clear()
 
+    # 🛡️ Market-guard: если BTC падает сильнее -2% за 24ч — не торгуем
+    try:
+        mk = await get_all_coin_data(["bitcoin", "ethereum"])
+        mk_map = {c.get("id"): c for c in mk}
+        btc_24h = safe_float(mk_map.get("bitcoin", {}).get("price_change_percentage_24h"))
+        eth_24h = safe_float(mk_map.get("ethereum", {}).get("price_change_percentage_24h"))
+        if btc_24h <= -2.0:
+            ANALYSIS_LOG.append(
+                f"🛑 Рынок слабый: BTC {round(btc_24h,2)}%, ETH {round(eth_24h,2)}% за 24ч — сигналы отключены"
+            )
+            logger.info(ANALYSIS_LOG[-1])
+            return []
+        else:
+            ANALYSIS_LOG.append(
+                f"🟢 Рынок ок: BTC {round(btc_24h,2)}%, ETH {round(eth_24h,2)}% — продолжаем анализ"
+            )
+    except Exception as e:
+        # Если не удалось проверить рынок — продолжаем, но логируем
+        logger.warning(f"Не удалось проверить рынок (BTC/ETH): {e}")
+
     try:
         coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
         all_data = await get_all_coin_data(coin_ids)
@@ -158,6 +178,7 @@ async def analyze_cryptos(fallback=True):
             passed += 1
             coin["score"] = score
             coin["probability"] = prob
+            # добавим маркер про рынок в reasons, если он был рассчитан выше
             coin["reasons"] = reasons + [get_deposit_advice(prob)]
             coin["current_price"] = round_price(safe_float(coin.get("current_price")))
             coin["price_change_percentage_24h"] = round(safe_float(coin.get("price_change_percentage_24h")), 2)
@@ -203,7 +224,7 @@ async def analyze_cryptos(fallback=True):
                 break
 
     ANALYSIS_LOG.append(
-        f"📊 Статистика анализа: получено {len(all_data)} из {len(coin_ids)}, "
+        f"📊 Статистика анализа: получено {len(all_data)} из {len(TELEGRAM_WALLET_COIN_IDS)}, "
         f"прошло фильтр {passed}, без данных {no_data}, исключено {excluded}, "
         f"не прошло {len(all_data) - passed - excluded}"
     )
