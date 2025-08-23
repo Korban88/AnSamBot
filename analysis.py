@@ -7,6 +7,17 @@ import pytz
 from crypto_utils import get_all_coin_data
 from crypto_list import TELEGRAM_WALLET_COIN_IDS
 
+# === NEW ===
+from config import (
+    ENABLE_FNG, ENABLE_NEWS,
+    FNG_EXTREME_GREED, FNG_EXTREME_FEAR,
+    MARKET_GUARD_BTC_DROP,
+    NEGATIVE_TREND_7D_CUTOFF,
+    PUMP_CUTOFF_24H,
+    MIN_LIQUIDITY_USD, MAX_LIQUIDITY_USD
+)
+from sentiment_utils import get_fear_greed, get_news_sentiment  # NEW
+
 logger = logging.getLogger(__name__)
 
 EXCLUDE_IDS = {"tether", "bitcoin", "toncoin", "binancecoin", "ethereum"}
@@ -80,93 +91,106 @@ def _read_risk_guard():
         return {"date": today, "stops": 0, "targets": 0}
 
 
-def evaluate_coin(coin):
-    # Базовые поля
+def evaluate_coin(coin, fng=None, news_score=None):
+    """
+    ДОПОЛНЕНО:
+      - fng (dict) → {'value': int, 'classification': str}
+      - news_score (float|None) → [-1..+1] по CryptoPanic (агрегат за последние часы)
+    """
     rsi = round(safe_float(coin.get("rsi")), 2)
     ma7 = round(safe_float(coin.get("ma7")), 4)
-    ma30 = round(safe_float(coin.get("ma30")), 4)
     price = safe_float(coin.get("current_price"))
     change_24h = round(safe_float(coin.get("price_change_percentage_24h")), 2)
     change_7d = safe_float(coin.get("price_change_percentage_7d"))
     if change_7d is not None:
         change_7d = round(change_7d, 2)
     volume = safe_float(coin.get("total_volume"))
+    symbol = coin.get("symbol", "?").upper()
 
     reasons = []
     score = 0
 
-    # 1) RSI — «здоровая зона»
-    if 50 <= rsi <= 65:
-        score += 1
-        reasons.append(f"✓ RSI {rsi} (50–65, ок)")
-    else:
-        reasons.append(f"✗ RSI {rsi} (вне 50–65)")
+    # Жёсткие отсевы перед расчётом (перегрев/супер-даунтренд/ликвидность)
+    if change_24h is not None and change_24h >= PUMP_CUTOFF_24H:
+        return 0, 0, [f"⛔ Перегрев за 24ч ({change_24h}%) выше {PUMP_CUTOFF_24H}% — исключено"]
+    if change_7d is not None and change_7d <= NEGATIVE_TREND_7D_CUTOFF:
+        return 0, 0, reasons + [f"⛔ Даунтренд за 7д {change_7d}% ≤ {NEGATIVE_TREND_7D_CUTOFF}% — исключено"]
+    if volume is not None and not (MIN_LIQUIDITY_USD <= volume <= MAX_LIQUIDITY_USD):
+        return 0, 0, reasons + [f"⛔ Объём {format_volume(volume)} вне допустимого диапазона"]
 
-    # 2) Краткосрочный тренд: цена > MA7
+    # RSI check
+    if 52 <= rsi <= 60:
+        score += 1
+        reasons.append(f"✓ RSI {rsi} (в норме)")
+    else:
+        reasons.append(f"✗ RSI {rsi} (вне диапазона 52–60)")
+
+    # MA7 check
     if ma7 > 0 and price > ma7:
         score += 1
         reasons.append(f"✓ Цена выше MA7 ({ma7})")
     else:
         reasons.append(f"✗ Цена ниже MA7 ({ma7})")
 
-    # 3) Среднесрочный тренд: цена > MA30 и MA7 > MA30 (аналог EMA7>EMA21)
-    if ma30 > 0 and price > ma30 and ma7 > ma30:
-        score += 1
-        reasons.append(f"✓ Цена и MA7 выше MA30 ({ma30}) — восходящая структура")
-    else:
-        reasons.append(f"✗ Нет подтверждения тренда (MA30={ma30}, MA7={ma7}, цена={round(price,4)})")
-
-    # 4) Импульс за 24ч — берём «здоровый» диапазон (2.5%–12%), отсекаем пампы
-    if change_24h >= 2.5 and change_24h <= 12:
+    # Change 24h check
+    if change_24h >= 2.5:
         score += 1
         reasons.append(f"✓ Рост за 24ч {growth_comment(change_24h)}")
-    elif change_24h > 12:
-        reasons.append(f"⛔ Похоже на перегрев: {change_24h}% за 24ч — исключено")
-        return 0, 0, reasons
     else:
-        reasons.append(f"✗ Рост за 24ч {growth_comment(change_24h)} (мало)")
+        reasons.append(f"✗ Рост за 24ч {growth_comment(change_24h)}")
 
-    # 5) Недельный тренд — не хуже −5%
+    # Weekly trend check (мягкий штраф/бонус обрабатываем в вероятности)
     if change_7d is not None:
         if change_7d > 0:
             score += 1
-            reasons.append(f"✓ Тренд 7д {change_7d}%")
-        elif change_7d <= -5:
-            reasons.append(f"⛔ Даунтренд 7д {change_7d}% (хуже −5%) — исключено")
-            return 0, 0, reasons
+            reasons.append(f"✓ Тренд за 7д {change_7d}%")
         else:
-            reasons.append(f"⚠️ Тренд 7д {change_7d}% (слабый)")
+            reasons.append(f"✗ Тренд за 7д {change_7d}% (просадка)")
     else:
         reasons.append("⚠️ Данные по 7д отсутствуют")
 
-    # 6) Ликвидность — минимум 7M и не «тяжёлая» >150M
-    if 7_000_000 <= volume <= 150_000_000:
-        score += 1
-        reasons.append(f"✓ Объём {format_volume(volume)} (ликвидность ок)")
-    else:
-        reasons.append(f"✗ Объём {format_volume(volume)} (вне 7M–150M)")
+    # Volume check (локальный «ок» — диапазон уже выше проверили)
+    score += 1
+    reasons.append(f"✓ Объём {format_volume(volume)}")
 
-    # Вероятность: усиливаем вклад трендовых совпадений и убираем перегрев
-    trend_stack = 0
-    trend_stack += 1 if price > ma7 else 0
-    trend_stack += 1 if (price > ma30 and ma7 > ma30) else 0
-    trend_stack += 1 if (change_24h >= 2.5 and change_24h <= 12) else 0
+    # Probability базовая
+    rsi_weight = 1 if 52 <= rsi <= 60 else 0
+    ma_weight = 1 if ma7 > 0 and price > ma7 else 0
+    change_weight = min(change_24h / 6, 1) if change_24h > 0 else 0
+    vol_weight = 1  # мы уже убедились, что в допустимом диапазоне
+    trend_weight = 1 if (change_7d is not None and change_7d > 0) else 0
 
-    base_prob = 58
-    prob = base_prob \
-        + (1 if 50 <= rsi <= 65 else 0) * 4.5 \
-        + (1 if price > ma7 else 0) * 6.0 \
-        + (1 if (price > ma30 and ma7 > ma30) else 0) * 8.0 \
-        + (min(change_24h, 12) / 12) * 6.0 \
-        + (1 if 7_000_000 <= volume <= 150_000_000 else 0) * 4.0 \
-        + (1 if (change_7d is not None and change_7d > 0) else 0) * 4.0
+    base_prob = 60
+    prob = base_prob + (rsi_weight + ma_weight + change_weight + vol_weight + trend_weight) * 5
 
-    # Бонус за «полную структуру тренда»
-    if trend_stack == 3:
-        prob += 4.0
+    # === NEW: режим рынка (Fear & Greed) ===
+    if fng and isinstance(fng.get("value", None), int):
+        fng_val = fng["value"]
+        fng_cls = fng.get("classification", "")
+        if fng_val >= FNG_EXTREME_GREED:
+            prob -= 2
+            reasons.append(f"🧭 F&G: {fng_val} ({fng_cls}) — осторожнее")
+        elif fng_val <= FNG_EXTREME_FEAR:
+            prob -= 2
+            reasons.append(f"🧭 F&G: {fng_val} ({fng_cls}) — осторожнее")
+
+    # === NEW: новостной фон ===
+    if news_score is not None:
+        if news_score > 0.2:
+            prob = min(prob + 2, 92)
+            reasons.append("📰 Позитивный новостной фон")
+        elif news_score < -0.2:
+            prob = max(prob - 3, 0)
+            reasons.append("📰 Негативный новостной фон")
+
+    # Мягкая корректировка за 7д тренд
+    if change_7d is not None:
+        if change_7d >= 3:
+            prob = min(prob + 1, 92)
+        elif change_7d < 0:
+            prob = max(prob - 1, 0)
 
     prob = round(min(prob, 92), 2)
-
     return score, prob, reasons
 
 
@@ -174,13 +198,13 @@ async def analyze_cryptos(fallback=True):
     global ANALYSIS_LOG
     ANALYSIS_LOG.clear()
 
-    # 🛡️ Market-guard: проверка BTC/ETH
+    # 🛡️ Market-guard: BTC/ETH
     try:
         mk = await get_all_coin_data(["bitcoin", "ethereum"])
         mk_map = {c.get("id"): c for c in mk}
         btc_24h = safe_float(mk_map.get("bitcoin", {}).get("price_change_percentage_24h"))
         eth_24h = safe_float(mk_map.get("ethereum", {}).get("price_change_percentage_24h"))
-        if btc_24h <= -2.0:
+        if btc_24h <= MARKET_GUARD_BTC_DROP:
             ANALYSIS_LOG.append(
                 f"🛑 Рынок слабый: BTC {round(btc_24h,2)}%, ETH {round(eth_24h,2)}% за 24ч — сигналы отключены"
             )
@@ -193,21 +217,18 @@ async def analyze_cryptos(fallback=True):
     except Exception as e:
         logger.warning(f"Не удалось проверить рынок (BTC/ETH): {e}")
 
-    # 🔒 Daily risk-guard: слишком много стопов сегодня — делаем паузу
-    def _read_rg():
-        today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
-        if not os.path.exists(RISK_GUARD_FILE):
-            return {"date": today, "stops": 0, "targets": 0}
+    # === NEW: Fear & Greed ===
+    fng = None
+    if ENABLE_FNG:
         try:
-            with open(RISK_GUARD_FILE, "r") as f:
-                data = json.load(f)
-            if data.get("date") != today:
-                return {"date": today, "stops": 0, "targets": 0}
-            return {"date": today, "stops": int(data.get("stops", 0)), "targets": int(data.get("targets", 0))}
-        except Exception:
-            return {"date": today, "stops": 0, "targets": 0}
+            fng = await get_fear_greed()
+            if fng:
+                ANALYSIS_LOG.append(f"🧭 Fear&Greed: {fng['value']} ({fng.get('classification','')})")
+        except Exception as e:
+            logger.warning(f"F&G недоступен: {e}")
 
-    rg = _read_rg()
+    # 🔒 Daily risk-guard
+    rg = _read_risk_guard()
     if (rg["stops"] - rg["targets"] >= 2) or (rg["stops"] >= 3):
         ANALYSIS_LOG.append(
             f"🧯 Daily guard: остановка сигналов до завтра — сегодня стопов={rg['stops']}, профитов={rg['targets']}"
@@ -215,11 +236,11 @@ async def analyze_cryptos(fallback=True):
         logger.info(ANALYSIS_LOG[-1])
         return []
 
+    # Данные по монетам
     try:
         coin_ids = list(TELEGRAM_WALLET_COIN_IDS.keys())
         all_data = await get_all_coin_data(coin_ids)
         logger.info(f"📊 Данные получены по {len(all_data)} монетам из {len(coin_ids)}")
-
         missing_ids = set(coin_ids) - {c.get("id") for c in all_data}
     except Exception as e:
         logger.error(f"Ошибка при получении данных: {e}")
@@ -236,13 +257,27 @@ async def analyze_cryptos(fallback=True):
             excluded += 1
             continue
 
+        # первичная оценка без дорогих вызовов новостей
         try:
-            score, prob, reasons = evaluate_coin(coin)
+            score, prob, reasons = evaluate_coin(coin, fng=fng, news_score=None)
         except Exception:
             continue
 
-        # Новый жёсткий порог: 5 совпадений — «отлично», 4 — «хорошо»
-        if score >= 5 or (score == 4 and prob >= 78):
+        # подключаем новостной фон только для претендентов (экономим лимиты)
+        news_score = None
+        if ENABLE_NEWS and score >= 3:
+            try:
+                # пробуем по символу; если пусто — по coingecko id
+                sym = (coin.get("symbol") or "").upper()
+                news_score = await get_news_sentiment(sym or coin_id)
+                # пересчёт вероятности с учётом новостей
+                score, prob, reasons = evaluate_coin(coin, fng=fng, news_score=news_score)
+                if news_score is not None:
+                    ANALYSIS_LOG.append(f"📰 {sym or coin_id}: news_score={round(news_score,2)}")
+            except Exception as e:
+                logger.warning(f"Новости недоступны для {coin_id}: {e}")
+
+        if score >= 4:
             passed += 1
             coin["score"] = score
             coin["probability"] = prob
@@ -251,10 +286,9 @@ async def analyze_cryptos(fallback=True):
             coin["price_change_percentage_24h"] = round(safe_float(coin.get("price_change_percentage_24h")), 2)
             candidates.append(coin)
 
-    # Сначала по вероятности, затем по умеренному импульсу (не максимальный памп)
     candidates.sort(key=lambda x: (
         safe_float(x.get("probability")),
-        -abs(8 - safe_float(x.get("price_change_percentage_24h")))  # ближе к 8% предпочтительнее
+        safe_float(x.get("price_change_percentage_24h"))
     ), reverse=True)
 
     top_signals = []
@@ -279,8 +313,7 @@ async def analyze_cryptos(fallback=True):
             change = round(safe_float(fallback_coin.get("price_change_percentage_24h")), 2)
             volume = safe_float(fallback_coin.get("total_volume", 0))
 
-            # даже в fallback — не брать перегрев и требовать ликвидность
-            if price and 2.5 <= change <= 12 and volume >= 7_000_000:
+            if price and change and volume >= 3_000_000:
                 top_signals.append({
                     "id": fallback_coin["id"],
                     "symbol": fallback_coin["symbol"],
