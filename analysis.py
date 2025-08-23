@@ -25,10 +25,8 @@ ANALYSIS_LOG = []
 RISK_GUARD_FILE = "risk_guard.json"
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
-# Мягкий «бюджет» на запросы новостей за один прогон анализа,
-# чтобы не словить 429 от CryptoPanic.
-NEWS_MAX_PER_RUN = 10
-
+# === NEW: ограничиваем сколько раз за один прогон ходим за новостями ===
+NEWS_MAX_PER_RUN = 5  # было 10 — уменьшаем, чтобы не ловить 429
 
 def safe_float(value, default=0.0):
     try:
@@ -114,7 +112,7 @@ def evaluate_coin(coin, fng=None, news_score=None):
     reasons = []
     score = 0
 
-    # Жёсткие отсевы (перегрев / сильный даунтренд / низкая/слишком высокая ликвидность)
+    # Жёсткие отсевы
     if change_24h is not None and change_24h >= PUMP_CUTOFF_24H:
         return 0, 0, [f"⛔ Перегрев за 24ч ({change_24h}%) выше {PUMP_CUTOFF_24H}% — исключено"]
     if change_7d is not None and change_7d <= NEGATIVE_TREND_7D_CUTOFF:
@@ -136,14 +134,14 @@ def evaluate_coin(coin, fng=None, news_score=None):
     else:
         reasons.append(f"✗ Цена ниже MA7 ({ma7})")
 
-    # Изменение за 24ч
+    # 24h
     if change_24h >= 2.5:
         score += 1
         reasons.append(f"✓ Рост за 24ч {growth_comment(change_24h)}")
     else:
         reasons.append(f"✗ Рост за 24ч {growth_comment(change_24h)}")
 
-    # Тренд 7д
+    # 7d
     if change_7d is not None:
         if change_7d > 0:
             score += 1
@@ -153,11 +151,11 @@ def evaluate_coin(coin, fng=None, news_score=None):
     else:
         reasons.append("⚠️ Данные по 7д отсутствуют")
 
-    # Объём — уже отфильтрован по диапазону
+    # Объём — до этого уже отфильтровали допустимый диапазон
     score += 1
     reasons.append(f"✓ Объём {format_volume(volume)}")
 
-    # Базовая вероятность
+    # База вероятности
     rsi_weight = 1 if 52 <= rsi <= 60 else 0
     ma_weight = 1 if ma7 > 0 and price > ma7 else 0
     change_weight = min(change_24h / 6, 1) if change_24h > 0 else 0
@@ -167,7 +165,7 @@ def evaluate_coin(coin, fng=None, news_score=None):
     base_prob = 60
     prob = base_prob + (rsi_weight + ma_weight + change_weight + vol_weight + trend_weight) * 5
 
-    # === Fear & Greed ===
+    # Fear & Greed
     if fng and isinstance(fng.get("value", None), int):
         fng_val = fng["value"]
         fng_cls = fng.get("classification", "")
@@ -178,7 +176,7 @@ def evaluate_coin(coin, fng=None, news_score=None):
             prob -= 2
             reasons.append(f"🧭 F&G: {fng_val} ({fng_cls}) — осторожнее")
 
-    # === Новостной фон ===
+    # Новости
     if news_score is not None:
         if news_score > 0.2:
             prob = min(prob + 2, 92)
@@ -187,7 +185,7 @@ def evaluate_coin(coin, fng=None, news_score=None):
             prob = max(prob - 3, 0)
             reasons.append("📰 Негативный новостной фон")
 
-    # Мягкая корректировка за 7д
+    # Мягкая корректировка 7д
     if change_7d is not None:
         if change_7d >= 3:
             prob = min(prob + 1, 92)
@@ -202,7 +200,7 @@ async def analyze_cryptos(fallback=True):
     global ANALYSIS_LOG
     ANALYSIS_LOG.clear()
 
-    # 🛡️ Market-guard: BTC/ETH
+    # Market-guard: BTC/ETH
     try:
         mk = await get_all_coin_data(["bitcoin", "ethereum"])
         mk_map = {c.get("id"): c for c in mk}
@@ -221,7 +219,7 @@ async def analyze_cryptos(fallback=True):
     except Exception as e:
         logger.warning(f"Не удалось проверить рынок (BTC/ETH): {e}")
 
-    # === Fear & Greed ===
+    # Fear & Greed
     fng = None
     if ENABLE_FNG:
         try:
@@ -231,7 +229,7 @@ async def analyze_cryptos(fallback=True):
         except Exception as e:
             logger.warning(f"F&G недоступен: {e}")
 
-    # 🔒 Daily risk-guard
+    # Daily risk-guard
     rg = _read_risk_guard()
     if (rg["stops"] - rg["targets"] >= 2) or (rg["stops"] >= 3):
         ANALYSIS_LOG.append(
@@ -255,7 +253,7 @@ async def analyze_cryptos(fallback=True):
     no_data = len(missing_ids)
     excluded = 0
 
-    news_used = 0  # лимитируем количество запросов к CryptoPanic в один прогон
+    news_calls = 0  # === NEW: считаем, сколько раз сходили за новостями
 
     for coin in all_data:
         coin_id = coin.get("id", "")
@@ -263,19 +261,19 @@ async def analyze_cryptos(fallback=True):
             excluded += 1
             continue
 
-        # первичная оценка без «дорогих» новостей
+        # первичная оценка без дорогих вызовов новостей
         try:
             score, prob, reasons = evaluate_coin(coin, fng=fng, news_score=None)
         except Exception:
             continue
 
-        # новостной фон — только для претендентов и в пределах бюджета
+        # новости — только для претендентов и в пределах лимита NEWS_MAX_PER_RUN
         news_score = None
-        if ENABLE_NEWS and score >= 3 and news_used < NEWS_MAX_PER_RUN:
+        if ENABLE_NEWS and score >= 3 and news_calls < NEWS_MAX_PER_RUN:
             try:
                 sym = (coin.get("symbol") or "").upper()
-                news_score = await get_news_sentiment(sym or coin_id)
-                news_used += 1
+                news_score = await get_news_sentiment(sym or coin_id, ttl=3600)  # кэш до 1 часа
+                news_calls += 1
                 # пересчёт с учётом новостей
                 score, prob, reasons = evaluate_coin(coin, fng=fng, news_score=news_score)
                 if news_score is not None:
@@ -334,7 +332,7 @@ async def analyze_cryptos(fallback=True):
     ANALYSIS_LOG.append(
         f"📊 Статистика анализа: получено {len(all_data)} из {len(coin_ids)}, "
         f"прошло фильтр {passed}, без данных {no_data}, исключено {excluded}, "
-        f"не прошло {len(all_data) - passed - excluded}"
+        f"не прошло {len(all_data) - passed - excluded}; news_calls={news_calls}/{NEWS_MAX_PER_RUN}"
     )
 
     return top_signals
