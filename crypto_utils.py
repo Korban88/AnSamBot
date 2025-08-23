@@ -1,23 +1,44 @@
+# crypto_utils.py
+# Аккуратные правки: anti‑429, единый aiohttp‑сеанс, кэш историй цен с TTL, атомарная запись кеша.
 import aiohttp
 import json
 import os
 from datetime import datetime, timedelta
 import logging
 import asyncio
+from typing import Any, Dict, List, Optional
 
 CACHE_PATH = "indicators_cache.json"
 
-# Загрузка или инициализация кеша
+# ---- Параметры, чтобы не ловить 429 (всё с дефолтами как у тебя, но настраиваемо через ENV)
+CG_CHUNK_SIZE = int(os.getenv("CG_CHUNK_SIZE", "45"))          # размер чанка /coins/markets
+CG_CHUNK_PAUSE = float(os.getenv("CG_CHUNK_PAUSE", "2"))       # сек пауза между чанками
+HTTP_MAX_RETRIES = int(os.getenv("HTTP_MAX_RETRIES", "6"))     # попыток на запрос
+HTTP_BACKOFF_BASE = float(os.getenv("HTTP_BACKOFF_BASE", "1.7"))
+HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "20"))
+HIST_TTL_MIN = int(os.getenv("HIST_TTL_MIN", "240"))           # TTL историй цен (минуты)
+INDIC_TTL_MIN = int(os.getenv("INDIC_TTL_MIN", "30"))          # TTL RSI/MA/price (минуты)
+
+# ---- Загрузка/сохранение кеша
 if os.path.exists(CACHE_PATH):
-    with open(CACHE_PATH, "r") as f:
-        INDICATOR_CACHE = json.load(f)
+    try:
+        with open(CACHE_PATH, "r", encoding="utf-8") as f:
+            INDICATOR_CACHE: Dict[str, Any] = json.load(f)
+    except Exception:
+        INDICATOR_CACHE = {}
 else:
     INDICATOR_CACHE = {}
 
-def save_cache():
-    with open(CACHE_PATH, "w") as f:
-        json.dump(INDICATOR_CACHE, f, indent=2)
+def _atomic_save(path: str, data: Dict[str, Any]) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
 
+def save_cache() -> None:
+    _atomic_save(CACHE_PATH, INDICATOR_CACHE)
+
+# ---- Вспомогательные
 def safe_float(value, default=0.0):
     try:
         if value is None:
@@ -50,6 +71,7 @@ def calculate_ma(prices, days=7):
     return round(sum(prices[-days:]) / days, 4)
 
 def calculate_rsi(prices):
+    # Сохраняем твою логику: RSI по последним 8 точкам.
     if len(prices) < 8:
         return None
 
@@ -67,47 +89,131 @@ def calculate_rsi(prices):
     rs = avg_gain / avg_loss
     return round(100 - (100 / (1 + rs)), 2)
 
+# ---- Единый aiohttp‑клиент
+_SESSION: Optional[aiohttp.ClientSession] = None
+_SESSION_LOCK = asyncio.Lock()
+
+async def _get_session() -> aiohttp.ClientSession:
+    global _SESSION
+    if _SESSION and not _SESSION.closed:
+        return _SESSION
+    async with _SESSION_LOCK:
+        if _SESSION is None or _SESSION.closed:
+            timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
+            _SESSION = aiohttp.ClientSession(
+                timeout=timeout,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "AnSamBot/anti429"
+                }
+            )
+    return _SESSION
+
+async def _request_json(method: str, url: str, *, params: Dict[str, Any] = None) -> Any:
+    """
+    Унифицированный запрос с уважением 429/Retry-After, экспоненциальным backoff и максимумом попыток.
+    """
+    session = await _get_session()
+    attempt = 0
+    while True:
+        try:
+            async with session.request(method.upper(), url, params=params) as resp:
+                if resp.status == 429:
+                    attempt += 1
+                    if attempt > HTTP_MAX_RETRIES:
+                        raise RuntimeError(f"429 Too Many Requests after {attempt} retries: {url}")
+                    retry_after = resp.headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            wait_s = min(float(retry_after), 30.0)
+                        except ValueError:
+                            wait_s = min(5.0 * attempt, 30.0)
+                    else:
+                        wait_s = min((HTTP_BACKOFF_BASE ** attempt) + 0.1 * attempt, 25.0)
+                    logging.warning(f"⚠️ 429 по {url}. Ждём {round(wait_s,2)} сек (попытка {attempt})")
+                    await asyncio.sleep(wait_s)
+                    continue
+
+                if 500 <= resp.status < 600:
+                    attempt += 1
+                    if attempt > HTTP_MAX_RETRIES:
+                        raise RuntimeError(f"{resp.status} after {attempt} retries: {url}")
+                    wait_s = min((HTTP_BACKOFF_BASE ** attempt) + 0.1 * attempt, 20.0)
+                    logging.warning(f"⚠️ {resp.status} по {url}. Повтор через {round(wait_s,2)} сек (попытка {attempt})")
+                    await asyncio.sleep(wait_s)
+                    continue
+
+                resp.raise_for_status()
+                return await resp.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            attempt += 1
+            if attempt > HTTP_MAX_RETRIES:
+                raise
+            wait_s = min((HTTP_BACKOFF_BASE ** attempt) + 0.2 * attempt, 20.0)
+            logging.warning(f"⚠️ Ошибка запроса {e}. Повтор через {round(wait_s,2)} сек (попытка {attempt})")
+            await asyncio.sleep(wait_s)
+
+# ---- Данные CoinGecko
 async def fetch_historical_prices(coin_id, days=30):
+    """
+    Истории цен с кэшем. TTL задаётся HIST_TTL_MIN.
+    Сохраняем в INDICATOR_CACHE[coin_id]['hist_prices'] и 'hist_ts'.
+    """
+    now = datetime.utcnow()
+    node = INDICATOR_CACHE.get(coin_id, {})
+    ts_str = node.get("hist_ts")
+    if ts_str:
+        try:
+            ts = datetime.fromisoformat(ts_str)
+            if now - ts < timedelta(minutes=HIST_TTL_MIN):
+                prices_cached = node.get("hist_prices")
+                if isinstance(prices_cached, list) and prices_cached:
+                    return [safe_float(p) for p in prices_cached]
+        except Exception:
+            pass
+
     url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
     params = {"vs_currency": "usd", "days": days, "interval": "daily"}
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, params=params) as response:
-            if response.status == 200:
-                data = await response.json()
-                return [safe_float(price[1]) for price in data.get("prices", [])]
-            return []
+    try:
+        data = await _request_json("GET", url, params=params)
+        prices = [safe_float(price[1]) for price in data.get("prices", [])]
+    except Exception:
+        prices = []
 
-async def fetch_all_coin_data(coin_ids):
-    """Получает данные с CoinGecko чанками по 45 монет с защитой от 429"""
+    INDICATOR_CACHE.setdefault(coin_id, {})
+    INDICATOR_CACHE[coin_id]["hist_prices"] = prices
+    INDICATOR_CACHE[coin_id]["hist_ts"] = now.isoformat()
+    save_cache()
+    return prices
+
+async def fetch_all_coin_data(coin_ids: List[str]):
+    """Получает данные с CoinGecko чанками с защитой от 429. Формат — как раньше."""
     results = []
-    chunk_size = 45
-    async with aiohttp.ClientSession() as session:
-        for i in range(0, len(coin_ids), chunk_size):
-            chunk = coin_ids[i:i + chunk_size]
-            url = "https://api.coingecko.com/api/v3/coins/markets"
-            params = {
-                "vs_currency": "usd",
-                "ids": ",".join(chunk),
-                "price_change_percentage": "24h,7d"
-            }
+    if not coin_ids:
+        return results
 
-            attempts = 0
-            while attempts < 3:
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        results.extend(data)
-                        break
-                    elif response.status == 429:
-                        attempts += 1
-                        wait_time = 10 * attempts
-                        logging.warning(f"⚠️ Ошибка API 429. Ждём {wait_time} сек и повторяем... (попытка {attempts})")
-                        await asyncio.sleep(wait_time)
-                    else:
-                        logging.error(f"❌ Ошибка API {response.status} для монет: {chunk}")
-                        break
+    url = "https://api.coingecko.com/api/v3/coins/markets"
+    # Бэмпов не меняем: 24h и 7d как у тебя
+    base_params = {
+        "vs_currency": "usd",
+        "price_change_percentage": "24h,7d"
+    }
 
-            await asyncio.sleep(2)  # пауза между чанками
+    for i in range(0, len(coin_ids), CG_CHUNK_SIZE):
+        chunk = coin_ids[i:i + CG_CHUNK_SIZE]
+        params = {**base_params, "ids": ",".join(chunk)}
+
+        try:
+            data = await _request_json("GET", url, params=params)
+            if isinstance(data, list):
+                results.extend(data)
+            else:
+                logging.error(f"❌ Непредвиденный формат ответа по чанку {chunk[:3]}... (len={len(chunk)})")
+        except Exception as e:
+            logging.error(f"❌ Ошибка API для монет {chunk[:3]}...: {e}")
+
+        # Пауза между чанками (уважение к лимитам)
+        await asyncio.sleep(CG_CHUNK_PAUSE)
 
     return results
 
@@ -126,7 +232,7 @@ async def get_all_coin_data(coin_ids):
         cached = INDICATOR_CACHE.get(coin_id, {})
         timestamp = cached.get("timestamp")
         now = datetime.utcnow()
-        is_fresh = timestamp and (now - datetime.fromisoformat(timestamp)) < timedelta(minutes=30)
+        is_fresh = timestamp and (now - datetime.fromisoformat(timestamp)) < timedelta(minutes=INDIC_TTL_MIN)
 
         if is_fresh:
             rsi = safe_float(cached.get("rsi"))
@@ -134,10 +240,12 @@ async def get_all_coin_data(coin_ids):
             ma30 = safe_float(cached.get("ma30"))
         else:
             prices = await fetch_historical_prices(coin_id, days=30)
+            # Твоя логика с фоллбэками — оставляем
             rsi = calculate_rsi(prices[-8:]) or simulate_rsi(change_24h)
             ma7 = calculate_ma(prices, days=7) or simulate_ma(current_price, days=7)
             ma30 = calculate_ma(prices, days=30) or simulate_ma(current_price, days=30)
             INDICATOR_CACHE[coin_id] = {
+                **INDICATOR_CACHE.get(coin_id, {}),
                 "rsi": rsi,
                 "ma7": ma7,
                 "ma30": ma30,
@@ -197,7 +305,7 @@ async def get_current_price(query):
     timestamp = cached.get("timestamp")
     now = datetime.utcnow()
     if timestamp and (now - datetime.fromisoformat(timestamp)) < timedelta(minutes=15):
-        if cached.get("price"):
+        if cached.get("price") is not None:
             logging.info(f"📌 Цена {query.upper()} взята из кеша: {cached['price']}")
             return cached["price"]
 
@@ -207,6 +315,7 @@ async def get_current_price(query):
         coins = await get_all_coin_data([coin_id])
         if coins and coins[0] and coins[0].get("current_price") is not None:
             price = coins[0].get("current_price")
+            INDICATOR_CACHE.setdefault(coin_id, {})
             INDICATOR_CACHE[coin_id]["price"] = price
             INDICATOR_CACHE[coin_id]["timestamp"] = now.isoformat()
             save_cache()
