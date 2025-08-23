@@ -1,3 +1,4 @@
+# analysis.py
 import logging
 import json
 import os
@@ -16,7 +17,7 @@ from config import (
     PUMP_CUTOFF_24H,
     MIN_LIQUIDITY_USD, MAX_LIQUIDITY_USD
 )
-from sentiment_utils import get_fear_greed, get_news_sentiment  # NEW
+from sentiment_utils import get_fear_greed, get_news_sentiment  # оставляем как у тебя
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,6 @@ def safe_float(value, default=0.0):
     except (TypeError, ValueError):
         return default
 
-
 def round_price(price):
     if price >= 1:
         return round(price, 3)
@@ -44,7 +44,6 @@ def round_price(price):
         return round(price, 4)
     else:
         return round(price, 6)
-
 
 def format_volume(volume):
     if volume >= 1_000_000_000:
@@ -56,7 +55,6 @@ def format_volume(volume):
     else:
         return str(volume)
 
-
 def get_deposit_advice(prob):
     if prob >= 85:
         return "💰 Совет: можно вложить до 35% депозита (очень сильный сигнал)"
@@ -64,7 +62,6 @@ def get_deposit_advice(prob):
         return "💰 Совет: не более 25% депозита (сильный сигнал)"
     else:
         return "💰 Совет: не более 15–20% депозита (умеренный сигнал)"
-
 
 def growth_comment(change_24h):
     change_24h = round(change_24h, 2)
@@ -77,21 +74,19 @@ def growth_comment(change_24h):
     else:
         return f"{change_24h}% ⚠️ (слабый рост)"
 
-
 def _read_risk_guard():
     """Читает дневную статистику стопов/профитов для защитного режима."""
     today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
     if not os.path.exists(RISK_GUARD_FILE):
         return {"date": today, "stops": 0, "targets": 0}
     try:
-        with open(RISK_GUARD_FILE, "r") as f:
+        with open(RISK_GUARD_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         if data.get("date") != today:
             return {"date": today, "stops": 0, "targets": 0}
         return {"date": today, "stops": int(data.get("stops", 0)), "targets": int(data.get("targets", 0))}
     except Exception:
         return {"date": today, "stops": 0, "targets": 0}
-
 
 def evaluate_coin(coin, fng=None, news_score=None):
     """
@@ -195,7 +190,6 @@ def evaluate_coin(coin, fng=None, news_score=None):
     prob = round(min(prob, 92), 2)
     return score, prob, reasons
 
-
 async def analyze_cryptos(fallback=True):
     global ANALYSIS_LOG
     ANALYSIS_LOG.clear()
@@ -206,7 +200,8 @@ async def analyze_cryptos(fallback=True):
         mk_map = {c.get("id"): c for c in mk}
         btc_24h = safe_float(mk_map.get("bitcoin", {}).get("price_change_percentage_24h"))
         eth_24h = safe_float(mk_map.get("ethereum", {}).get("price_change_percentage_24h"))
-        if btc_24h <= MARKET_GUARD_BTC_DROP:
+        # ВАЖНО: защита должна срабатывать только при падении BTC на заданное значение
+        if btc_24h <= -abs(MARKET_GUARD_BTC_DROP):
             ANALYSIS_LOG.append(
                 f"🛑 Рынок слабый: BTC {round(btc_24h,2)}%, ETH {round(eth_24h,2)}% за 24ч — сигналы отключены"
             )
