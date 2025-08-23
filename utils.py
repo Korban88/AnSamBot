@@ -118,11 +118,12 @@ async def send_daily_signal(user_id, app):
 
 
 async def debug_analysis_message(user_id, context):
+    """Показываем лог анализа без Markdown, чтобы не ловить ошибки парсинга."""
     from analysis import ANALYSIS_LOG
     text = "\n\n".join(ANALYSIS_LOG[-20:])
     if not text:
         text = "Анализ ещё не проводился."
-    await context.bot.send_message(chat_id=user_id, text=f"*Анализ монет:*\n{text}", parse_mode="Markdown")
+    await context.bot.send_message(chat_id=user_id, text="Анализ монет:\n" + text)
 
 
 async def debug_cache_message(user_id, context):
@@ -139,8 +140,8 @@ async def debug_cache_message(user_id, context):
             f"{s['probability']}% — {s['price_change_percentage_24h']}% за 24ч"
         )
 
-    message = "*📦 Кэш сигналов:*\n" + "\n".join(formatted)
-    await context.bot.send_message(chat_id=user_id, text=message, parse_mode="Markdown")
+    message = "📦 Кэш сигналов:\n" + "\n".join(formatted)
+    await context.bot.send_message(chat_id=user_id, text=message)
 
 
 async def manual_refresh_signals(user_id, context):
