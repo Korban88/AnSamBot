@@ -81,69 +81,90 @@ def _read_risk_guard():
 
 
 def evaluate_coin(coin):
+    # Базовые поля
     rsi = round(safe_float(coin.get("rsi")), 2)
     ma7 = round(safe_float(coin.get("ma7")), 4)
+    ma30 = round(safe_float(coin.get("ma30")), 4)
     price = safe_float(coin.get("current_price"))
     change_24h = round(safe_float(coin.get("price_change_percentage_24h")), 2)
     change_7d = safe_float(coin.get("price_change_percentage_7d"))
     if change_7d is not None:
         change_7d = round(change_7d, 2)
     volume = safe_float(coin.get("total_volume"))
-    # symbol = coin.get("symbol", "?").upper()  # (не используется ниже)
 
     reasons = []
     score = 0
 
-    # RSI check
-    if 52 <= rsi <= 60:
+    # 1) RSI — «здоровая зона»
+    if 50 <= rsi <= 65:
         score += 1
-        reasons.append(f"✓ RSI {rsi} (в норме)")
+        reasons.append(f"✓ RSI {rsi} (50–65, ок)")
     else:
-        reasons.append(f"✗ RSI {rsi} (вне диапазона 52–60)")
+        reasons.append(f"✗ RSI {rsi} (вне 50–65)")
 
-    # MA7 check
+    # 2) Краткосрочный тренд: цена > MA7
     if ma7 > 0 and price > ma7:
         score += 1
         reasons.append(f"✓ Цена выше MA7 ({ma7})")
     else:
         reasons.append(f"✗ Цена ниже MA7 ({ma7})")
 
-    # Change 24h check
-    if change_24h >= 2.5:
+    # 3) Среднесрочный тренд: цена > MA30 и MA7 > MA30 (аналог EMA7>EMA21)
+    if ma30 > 0 and price > ma30 and ma7 > ma30:
+        score += 1
+        reasons.append(f"✓ Цена и MA7 выше MA30 ({ma30}) — восходящая структура")
+    else:
+        reasons.append(f"✗ Нет подтверждения тренда (MA30={ma30}, MA7={ma7}, цена={round(price,4)})")
+
+    # 4) Импульс за 24ч — берём «здоровый» диапазон (2.5%–12%), отсекаем пампы
+    if change_24h >= 2.5 and change_24h <= 12:
         score += 1
         reasons.append(f"✓ Рост за 24ч {growth_comment(change_24h)}")
+    elif change_24h > 12:
+        reasons.append(f"⛔ Похоже на перегрев: {change_24h}% за 24ч — исключено")
+        return 0, 0, reasons
     else:
-        reasons.append(f"✗ Рост за 24ч {growth_comment(change_24h)}")
+        reasons.append(f"✗ Рост за 24ч {growth_comment(change_24h)} (мало)")
 
-    # Weekly trend check (доп. защита: не брать явный даунтренд ниже −5%)
+    # 5) Недельный тренд — не хуже −5%
     if change_7d is not None:
         if change_7d > 0:
             score += 1
-            reasons.append(f"✓ Тренд за 7д {change_7d}%")
+            reasons.append(f"✓ Тренд 7д {change_7d}%")
+        elif change_7d <= -5:
+            reasons.append(f"⛔ Даунтренд 7д {change_7d}% (хуже −5%) — исключено")
+            return 0, 0, reasons
         else:
-            reasons.append(f"✗ Тренд за 7д {change_7d}% (просадка)")
-            if change_7d <= -5:
-                # жёсткий отсев сильного даунтренда
-                return 0, 0, reasons + ["⛔ Даунтренд ниже −5% за 7д — исключено"]
+            reasons.append(f"⚠️ Тренд 7д {change_7d}% (слабый)")
     else:
         reasons.append("⚠️ Данные по 7д отсутствуют")
 
-    # Volume check
-    if 5_000_000 <= volume <= 100_000_000:
+    # 6) Ликвидность — минимум 7M и не «тяжёлая» >150M
+    if 7_000_000 <= volume <= 150_000_000:
         score += 1
-        reasons.append(f"✓ Объём {format_volume(volume)}")
+        reasons.append(f"✓ Объём {format_volume(volume)} (ликвидность ок)")
     else:
-        reasons.append(f"✗ Объём {format_volume(volume)} (не в диапазоне)")
+        reasons.append(f"✗ Объём {format_volume(volume)} (вне 7M–150M)")
 
-    # Probability
-    rsi_weight = 1 if 52 <= rsi <= 60 else 0
-    ma_weight = 1 if ma7 > 0 and price > ma7 else 0
-    change_weight = min(change_24h / 6, 1) if change_24h > 0 else 0
-    volume_weight = 1 if 10_000_000 <= volume <= 100_000_000 else 0.5 if volume >= 5_000_000 else 0
-    trend_weight = 1 if change_7d and change_7d > 0 else 0
+    # Вероятность: усиливаем вклад трендовых совпадений и убираем перегрев
+    trend_stack = 0
+    trend_stack += 1 if price > ma7 else 0
+    trend_stack += 1 if (price > ma30 and ma7 > ma30) else 0
+    trend_stack += 1 if (change_24h >= 2.5 and change_24h <= 12) else 0
 
-    base_prob = 60
-    prob = base_prob + (rsi_weight + ma_weight + change_weight + volume_weight + trend_weight) * 5
+    base_prob = 58
+    prob = base_prob \
+        + (1 if 50 <= rsi <= 65 else 0) * 4.5 \
+        + (1 if price > ma7 else 0) * 6.0 \
+        + (1 if (price > ma30 and ma7 > ma30) else 0) * 8.0 \
+        + (min(change_24h, 12) / 12) * 6.0 \
+        + (1 if 7_000_000 <= volume <= 150_000_000 else 0) * 4.0 \
+        + (1 if (change_7d is not None and change_7d > 0) else 0) * 4.0
+
+    # Бонус за «полную структуру тренда»
+    if trend_stack == 3:
+        prob += 4.0
+
     prob = round(min(prob, 92), 2)
 
     return score, prob, reasons
@@ -173,7 +194,20 @@ async def analyze_cryptos(fallback=True):
         logger.warning(f"Не удалось проверить рынок (BTC/ETH): {e}")
 
     # 🔒 Daily risk-guard: слишком много стопов сегодня — делаем паузу
-    rg = _read_risk_guard()
+    def _read_rg():
+        today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
+        if not os.path.exists(RISK_GUARD_FILE):
+            return {"date": today, "stops": 0, "targets": 0}
+        try:
+            with open(RISK_GUARD_FILE, "r") as f:
+                data = json.load(f)
+            if data.get("date") != today:
+                return {"date": today, "stops": 0, "targets": 0}
+            return {"date": today, "stops": int(data.get("stops", 0)), "targets": int(data.get("targets", 0))}
+        except Exception:
+            return {"date": today, "stops": 0, "targets": 0}
+
+    rg = _read_rg()
     if (rg["stops"] - rg["targets"] >= 2) or (rg["stops"] >= 3):
         ANALYSIS_LOG.append(
             f"🧯 Daily guard: остановка сигналов до завтра — сегодня стопов={rg['stops']}, профитов={rg['targets']}"
@@ -207,7 +241,8 @@ async def analyze_cryptos(fallback=True):
         except Exception:
             continue
 
-        if score >= 4:
+        # Новый жёсткий порог: 5 совпадений — «отлично», 4 — «хорошо»
+        if score >= 5 or (score == 4 and prob >= 78):
             passed += 1
             coin["score"] = score
             coin["probability"] = prob
@@ -216,9 +251,10 @@ async def analyze_cryptos(fallback=True):
             coin["price_change_percentage_24h"] = round(safe_float(coin.get("price_change_percentage_24h")), 2)
             candidates.append(coin)
 
+    # Сначала по вероятности, затем по умеренному импульсу (не максимальный памп)
     candidates.sort(key=lambda x: (
         safe_float(x.get("probability")),
-        safe_float(x.get("price_change_percentage_24h"))
+        -abs(8 - safe_float(x.get("price_change_percentage_24h")))  # ближе к 8% предпочтительнее
     ), reverse=True)
 
     top_signals = []
@@ -243,7 +279,8 @@ async def analyze_cryptos(fallback=True):
             change = round(safe_float(fallback_coin.get("price_change_percentage_24h")), 2)
             volume = safe_float(fallback_coin.get("total_volume", 0))
 
-            if price and change and volume >= 3_000_000:
+            # даже в fallback — не брать перегрев и требовать ликвидность
+            if price and 2.5 <= change <= 12 and volume >= 7_000_000:
                 top_signals.append({
                     "id": fallback_coin["id"],
                     "symbol": fallback_coin["symbol"],
